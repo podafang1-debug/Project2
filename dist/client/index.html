@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#F7A14F">
+    <title>启智训练台 · AI个性化认知训练平台</title>
+    <!-- 引入样式 -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<!-- 登录 -->
+<div id="login">
+  <div class="brand">
+    <div class="logo" id="logoIcon"></div>
+    <h1>启智训练台</h1>
+    <p>AI 赋能智障儿童个性化认知训练平台 · 原型演示<br>数据全部保存在本机，不上传任何服务器</p>
+  </div>
+  <div class="role-grid">
+    <button class="role-card teacher" data-role="teacher">
+      <span class="check"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#fff" stroke-width="3"><path d="M5 13l4 4 10-11" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="ic" id="icTeacher"></span><b>康复医疗专业人员</b><small>评估·训练·处方审核</small>
+    </button>
+    <button class="role-card parent" data-role="parent">
+      <span class="check"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#fff" stroke-width="3"><path d="M5 13l4 4 10-11" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="ic" id="icParent"></span><b>家长</b><small>训练·看报表</small>
+    </button>
+    <button class="role-card admin" data-role="admin">
+      <span class="check"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#fff" stroke-width="3"><path d="M5 13l4 4 10-11" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="ic" id="icAdmin"></span><b>内容与机构管理员</b><small>内容·账号·系统治理</small>
+    </button>
+  </div>
+  <div class="public-demo-notice">🔒 公开原型演示：请勿填写真实姓名、诊断、电话或其他个人健康信息。演示数据只保存在当前浏览器中。</div>
+  <div class="pin-row">
+    <input id="pinInput" type="password" inputmode="numeric" maxlength="4" placeholder="请输入 4 位密码" enterkeyhint="go" autocomplete="off">
+  </div>
+  <div class="picked" id="pickedLine">请先选择上方身份</div>
+  <div class="err" id="loginErr"></div>
+  <button class="login-btn" id="loginBtn">登录</button>
+  <div style="font-size:12px;color:var(--sub);text-align:center;max-width:360px;">
+    演示密码：儿童 <b>1111</b>，家长 <b>1234</b>，康复医疗专业人员 <b>1234</b>，内容与机构管理员 <b>8888</b>（仅防误触）
+  </div>
+</div>
+
+<!-- 主界面 -->
+<div id="main" class="hidden">
+  <div class="topbar">
+    <div class="title"><span class="dot" id="topDot"></span>启智训练台</div>
+    <span class="role-badge" id="roleBadge"></span>
+    <div class="top-actions">
+      <button class="mini-btn" id="btnExport" title="导出备份">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" stroke-linecap="round" stroke-linejoin="round"/></svg>备份
+      </button>
+      <button class="mini-btn" id="btnImport" title="导入恢复">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V9M7 14l5-5 5 5M5 3h14" stroke-linecap="round" stroke-linejoin="round"/></svg>恢复
+      </button>
+    </div>
+  </div>
+
+  <div id="accBanner" class="acc-banner hidden"></div>
+
+  <div class="today" id="todayBox">
+    <h2><span id="icToday"></span>今日训练任务</h2>
+    <p class="hint">系统依据 AI 个性化方案自动排程；逾期任务已标红，点「开始」即进入对应训练。</p>
+    <div id="todayList"></div>
+  </div>
+
+  <!-- 各 Tab 内容由 JS 渲染 -->
+  <div id="tabContent"></div>
+</div>
+
+<!-- 底部导航 -->
+<div class="tabbar hidden" id="tabbar">
+  <button class="tab on" data-tab="archive"><span id="t1"></span>档案</button>
+  <button class="tab" data-tab="train"><span id="t2"></span>训练</button>
+  <button class="tab" data-tab="ai"><span id="t3"></span>AI方案</button>
+  <button class="tab" data-tab="report"><span id="t4"></span>报表</button>
+  <button class="tab" data-tab="setting"><span id="t5"></span>设置</button>
+</div>
+
+<!-- 通用弹窗 -->
+<div class="mask hidden" id="mask"><div class="sheet" id="sheet"></div></div>
+<!-- 训练弹窗 -->
+<div class="mask hidden" id="trainMask"><div class="sheet" id="trainSheet" style="position:relative;"></div></div>
+<!-- 反馈遮罩（位于训练弹窗内，见 #trainFb） -->
+<!-- 提示 -->
+<div class="toast" id="toast"></div>
+<input type="file" id="fileInput" accept="application/json" class="hidden">
+
+<!-- 按依赖顺序加载拆分后的业务模块 -->
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/children.js"></script>
+  <script src="js/training.js"></script>
+  <script src="js/assessment.js"></script>
+  <script src="js/ai-view.js"></script>
+  <script src="js/report.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/backup.js"></script>
+  <script src="js/modal.js"></script>
+  <script src="js/database.js"></script>
+  <script src="js/enhanced.js"></script>
+  <script src="js/backend-api.js"></script>
+  <script src="js/profile-ai.js"></script>
+  <script src="js/onboarding-assessment.js"></script>
+  <script src="js/assessment-framework.js"></script>
+  <script src="js/rehabilitation-methods.js"></script>
+  <script src="js/safety-governance.js"></script>
+  <script src="js/clinical-workflow.js"></script>
+  <script src="js/ui-role-experience.js"></script>
+  <script src="js/bootstrap.js"></script>
+</body>
+</html>

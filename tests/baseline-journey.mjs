@@ -1,0 +1,33 @@
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url);
+const {chromium}=require('C:/Users/ASUS1/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
+const page=await browser.newPage();page.setDefaultTimeout(5000);
+await page.goto(process.env.SMOKE_URL||'http://127.0.0.1:4174/index.html',{waitUntil:'networkidle'});
+await page.click('[data-role="child"]');await page.fill('#pinInput','1111');await page.click('#loginBtn');
+await page.waitForSelector('#baselineJourney');await page.click('#journeyStart');
+const firstCue=await page.locator('.target-cue span').textContent();
+if(firstCue!=='🐶')throw new Error(`The first matching game has no usable target cue: ${firstCue}`);
+const invalidGames=await page.evaluate(()=>BASELINE_GAMES.filter(game=>!game.prompt||!game.construct||!game.basis?.length||!game.choices.includes(game.target)||(!game.allowDuplicateChoices&&new Set(game.choices).size!==game.choices.length)||(game.prompt.includes('目标一样')&&!game.targetCue)).map(game=>game.title));
+if(invalidGames.length)throw new Error(`Games cannot be answered from visible information: ${invalidGames.join(',')}`);
+const gameCount=await page.evaluate(()=>BASELINE_GAMES.length);
+for(let index=0;index<gameCount;index++){
+  await page.waitForFunction(i=>document.querySelector('.journey-top>span')?.textContent.trim().startsWith(String(i+1)),index);
+  const targetIndex=await page.evaluate(i=>BASELINE_GAMES[i].choices.indexOf(BASELINE_GAMES[i].target),index);
+  const choices=page.locator('#emojiChoices button');await choices.nth(targetIndex).waitFor({state:'visible',timeout:3500});await choices.nth(targetIndex).click();
+  await page.waitForSelector('#celebrationContinue');await page.click('#celebrationContinue');
+}
+await page.waitForSelector('.journey-finish',{timeout:5000});
+const result=await page.evaluate(()=>({assessmentCount:enhancedState.assessments.filter(x=>x.scaleCode===BASELINE_VERSION).length,profile:Object.keys(children[0].profile6||{}).length,baselineRecords:records.filter(x=>x.source==='baseline-game').length,dbProfiles:relationalDb.abilityProfiles.length,aiInferences:relationalDb.aiInferences.length,narrativeStatus:relationalDb.abilityProfiles.at(-1)?.narrativeStatus,evidence:relationalDb.abilityProfiles.at(-1)?.evidence?.length,confidence:relationalDb.abilityProfiles.at(-1)?.confidence}));
+if(result.assessmentCount!==1||result.profile!==6||result.baselineRecords!==gameCount||result.dbProfiles!==1||result.aiInferences!==1||result.narrativeStatus!=='completed'||result.evidence<1||result.confidence<=0)throw new Error(`Invalid baseline result: ${JSON.stringify(result)}`);
+await page.click('#journeyDone');await page.waitForSelector('.adventure-path');
+if(await page.locator('.level-node').count()!==22||await page.locator('.level-node.current').count()!==1||await page.locator('.level-node.locked').count()!==21)throw new Error('Initial adventure level states are invalid');
+await page.evaluate(()=>{const first=childAdventureOrder(getCurrentAbilityProfile(activeChild))[0];for(let i=0;i<3;i++)records.push({id:uid(),childId:activeChild,module:first.engine,moduleId:first.id,domain:first.domain,difficulty:1,correct:true,firstCorrect:true,promptLevel:0,reactionMs:900,completed:true,source:'test-level',ts:Date.now()+i});saveAll();showTab('train');});
+await page.waitForSelector('.level-node.passed');
+if(await page.locator('.level-node.current').count()!==1||await page.locator('.level-node.locked').count()!==20)throw new Error('Passing a level did not unlock exactly one next level');
+await page.click('[data-tab="report"]');await page.waitForSelector('.saved-profile-child[data-profile-id]');
+await page.click('.saved-profile-child .profile-detail-btn');await page.waitForSelector('.profile-meta');await page.click('#closeProfileDetail');
+await page.click('#globalLogout');await page.click('[data-role="child"]');await page.fill('#pinInput','1111');await page.click('#loginBtn');
+await page.waitForTimeout(300);if(await page.locator('#baselineJourney').count())throw new Error('Completed baseline journey appeared again');
+console.log(`Baseline journey passed: ${gameCount} games, integrated six-domain profile, persistence and no repeat.`);
+await browser.close();

@@ -1,0 +1,17 @@
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url);
+const {chromium}=require('C:/Users/ASUS1/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
+const page=await browser.newPage();page.setDefaultTimeout(6000);
+await page.goto(process.env.SMOKE_URL||'http://127.0.0.1:8000/index.html',{waitUntil:'networkidle'});
+await page.click('[data-role="teacher"]');await page.fill('#pinInput','1234');await page.click('#loginBtn');
+await page.click('[data-tab="setting"]');await page.click('#openClinicalHub');
+await page.fill('#caseGuardian','测试监护人');await page.check('#caseConsent');await page.click('#saveIntake');
+await page.click('[data-clinical-tab="goals"]');await page.fill('#careGoalText','在少量提示下完成两步生活指令');await page.fill('#careGoalDue','2026-12-31');await page.click('#addCareGoal');
+await page.click('[data-clinical-tab="plans"]');await page.fill('#planSigner','T001');await page.check('#planSignConfirm');await page.click('#signPlan');
+await page.click('[data-clinical-tab="reevaluation"]');await page.fill('#revalGeneralization','在家庭场景中能够完成相同任务');await page.click('#saveReevaluation');
+await page.click('[data-clinical-tab="closure"]');await page.fill('#closureSummary','完成本周期目标，进入维持训练观察阶段');await page.fill('#closurePlan','每周完成两次家庭泛化活动');await page.fill('#closureNext','2027-01-15');await page.check('#closureSign');await page.click('#saveClosure');
+const result=await page.evaluate(()=>({intakes:enhancedState.caseIntakes.length,goals:enhancedState.careGoals.length,plans:enhancedState.planVersions.length,reevaluations:enhancedState.reevaluations.length,closures:enhancedState.closures.length,followups:enhancedState.followups.length,planStatus:enhancedState.planVersions.at(-1)?.status,review:currentPlanReview(activeChild).status}));
+if(!result.intakes||!result.goals||!result.plans||!result.reevaluations||!result.closures||!result.followups||result.planStatus!=='effective'||result.review!=='effective')throw new Error(`Clinical workflow incomplete: ${JSON.stringify(result)}`);
+console.log('Clinical workflow passed: intake, goal, signed plan, reevaluation, closure and follow-up.');
+await browser.close();

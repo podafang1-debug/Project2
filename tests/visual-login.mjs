@@ -1,0 +1,11 @@
+import { createRequire } from 'node:module';
+const require=createRequire(import.meta.url);
+const {chromium}=require('C:/Users/ASUS1/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
+const page=await browser.newPage({viewport:{width:920,height:1180},deviceScaleFactor:1});
+await page.goto(process.env.SMOKE_URL||'http://127.0.0.1:4174/index.html',{waitUntil:'networkidle'});
+await page.click('[data-role="teacher"]');
+await page.screenshot({path:'C:/Users/ASUS1/.codex/visualizations/2026/08/17/01a0100e-d0d6-75e2-96fc-479656d64e0d/login-visual.png',fullPage:true});
+await page.fill('#pinInput','1234');await page.click('#loginBtn');await page.waitForSelector('#main:not(.hidden)');
+await page.screenshot({path:'C:/Users/ASUS1/.codex/visualizations/2026/08/17/01a0100e-d0d6-75e2-96fc-479656d64e0d/role-header-visual.png'});
+await browser.close();

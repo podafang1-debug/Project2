@@ -1,0 +1,13 @@
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url);
+const {chromium}=require('C:/Users/ASUS1/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
+const page=await browser.newPage();page.setDefaultTimeout(6000);
+await page.goto(process.env.SMOKE_URL||'http://127.0.0.1:4178/index.html',{waitUntil:'networkidle'});
+const login=async(role,pin)=>{await page.click(`[data-role="${role}"]`);await page.fill('#pinInput',pin);await page.click('#loginBtn');await page.waitForSelector('#main:not(.hidden)');};
+await login('child','1111');await page.waitForSelector('#baselineJourney');await page.click('#journeyPause');await page.click('#childAccessibility');await page.waitForSelector('#speechRateControl');await page.fill('#speechRateControl','70');await page.click('#closeComfort');await page.click('#globalLogout');
+await login('parent','1234');await page.waitForSelector('.parent-home');await page.click('#openHomeDemo');await page.waitForSelector('.demo-story');await page.click('#closeHomeDemo');await page.click('#globalLogout');
+await login('teacher','1234');await page.waitForSelector('.professional-command');await page.click('[data-tab="ai"]');await page.waitForSelector('.ai-evidence');await page.click('#globalLogout');
+await login('admin','8888');await page.waitForSelector('.admin-governance-banner');await page.waitForSelector('[data-panel="contentReview"]');
+console.log('Role experience passed: child comfort, parent home, professional cockpit and governance center.');
+await browser.close();

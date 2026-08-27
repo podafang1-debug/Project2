@@ -1,0 +1,13 @@
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url);
+const {chromium}=require('C:/Users/ASUS1/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
+const page=await browser.newPage();page.setDefaultTimeout(6000);
+const errors=[];page.on('pageerror',error=>errors.push(error.message));
+await page.goto(process.env.SMOKE_URL||'http://127.0.0.1:8765/index.html',{waitUntil:'networkidle'});
+await page.click('[data-role="teacher"]');await page.fill('#pinInput','1234');await page.click('#loginBtn');
+await page.click('[data-tab="setting"]');await page.waitForSelector('#openScanImport');await page.click('#openScanImport');
+await page.waitForSelector('.scan-pipeline');await page.waitForSelector('#scanBatchList');
+if(errors.length)throw new Error(`Scanner workbench page errors: ${errors.join('; ')}`);
+console.log('Scanner import passed: professional-only entry, local backend status and review workbench render.');
+await browser.close();

@@ -12,7 +12,25 @@
 python backend/server.py
 ```
 
-浏览器打开 `http://127.0.0.1:8000`。服务首次启动会自动建立 `backend/training_platform.db`，不需要安装第三方 Python 包。
+打开终端打印出的本地网址（默认 `http://127.0.0.1:8765`；被占用时会自动使用 8766-8774）。服务首次启动会自动建立 `backend/training_platform.db`。
+
+## 历史扫描档案批量导入
+
+先安装本地离线识别组件：
+
+```powershell
+python -m pip install -r backend/requirements-ocr.txt
+```
+
+少量 PDF：登录“康复医疗专业人员”，进入“设置 → 历史扫描档案导入”。上传后依次完成离线 OCR、候选字段复核、关联儿童、六维分数专业确认和正式入档。
+
+200 份以上材料建议放入独立文件夹，再运行：
+
+```powershell
+python backend/bulk_import.py "E:\待导入档案" --recursive
+```
+
+原始 PDF 和 OCR 全文使用本机密钥加密，目录与密钥均被 Git 忽略。自动识别结果只作为候选值，专业人员复核前不会进入正式档案。六维能力分数必须由专业人员依据合法评估填写，程序不会从叙述文本猜测临床分数。
 
 ## 免费本地 AI（可选）
 

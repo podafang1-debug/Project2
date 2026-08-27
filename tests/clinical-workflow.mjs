@@ -3,7 +3,7 @@ const require=createRequire(import.meta.url);
 const {chromium}=require('C:/Users/ASUS1/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
 const page=await browser.newPage();page.setDefaultTimeout(6000);
-await page.goto(process.env.SMOKE_URL||'http://127.0.0.1:8000/index.html',{waitUntil:'networkidle'});
+await page.goto(process.env.SMOKE_URL||'http://127.0.0.1:8765/index.html',{waitUntil:'networkidle'});
 await page.click('[data-role="teacher"]');await page.fill('#pinInput','1234');await page.click('#loginBtn');
 await page.click('[data-tab="setting"]');await page.click('#openClinicalHub');
 await page.fill('#caseGuardian','测试监护人');await page.check('#caseConsent');await page.click('#saveIntake');

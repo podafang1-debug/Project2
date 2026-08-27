@@ -69,6 +69,7 @@ function renderScanBatch(data){
   $$('[data-field-approve]',area).forEach(button=>button.onclick=()=>reviewScanField(button.dataset.fieldApprove,'approved'));
   $$('[data-field-reject]',area).forEach(button=>button.onclick=()=>reviewScanField(button.dataset.fieldReject,'rejected'));
   if($('#commitScanBatch'))$('#commitScanBatch').onclick=()=>commitScanBatch(batch.batch_id);
+  if($('#runProfileAgent'))$('#runProfileAgent').onclick=()=>runProfileAgent(batch.batch_id);
 }
 
 function renderScanField(field){
@@ -87,7 +88,7 @@ function currentScanBatchId(){const button=$('#commitScanBatch');return button?.
 function renderScanCommit(batchId,pending){
   window.__scanBatchId=batchId;
   const domainNames={A:'注意与感知',B:'记忆',C:'执行与逻辑',D:'语言沟通',E:'社会情绪',F:'生活适应'};
-  return '<section class="scan-commit"><h4>确认写入正式档案</h4><div class="field"><label>关联儿童</label><select id="scanChildId"><option value="">请选择授权儿童</option>'+children.filter(x=>dbCanAccessChild(x.id)).map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('')+'</select></div><p>六维分数由专业人员结合已确认量表填写。全部填写才生成初始画像；留空则只导入历史档案，不让AI猜分。</p><div class="scan-domain-scores">'+Object.entries(domainNames).map(([key,name])=>'<label>'+name+'<input data-scan-score="'+key+'" type="number" min="0" max="100" placeholder="0-100"></label>').join('')+'</div><button class="btn-primary" id="commitScanBatch" data-batch-id="'+batchId+'" '+(pending?'disabled':'')+'>'+(pending?'请先完成全部字段复核':'签署并正式入档')+'</button></section>';
+  return '<section class="scan-agent-launch"><div><span>🧠✨</span><h4>档案画像与个性化训练 Agent</h4><p>直接分析OCR文字，自动生成带证据的L0-L4画像、22模块训练参数和可作答题目。</p></div><button class="btn-primary" id="runProfileAgent" data-batch-id="'+batchId+'">从文字生成画像与题目</button><small>自动结果是待审核草稿；专业人员签署后才进入儿童端。</small></section><section class="scan-commit"><h4>传统结构化入档</h4><div class="field"><label>关联儿童</label><select id="scanChildId"><option value="">请选择授权儿童</option>'+children.filter(x=>dbCanAccessChild(x.id)).map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('')+'</select></div><p>如果档案已有正式量表分数，也可以在此直接填写。全部填写才生成数值画像；留空则只导入历史档案。</p><div class="scan-domain-scores">'+Object.entries(domainNames).map(([key,name])=>'<label>'+name+'<input data-scan-score="'+key+'" type="number" min="0" max="100" placeholder="0-100"></label>').join('')+'</div><button class="btn-primary" id="commitScanBatch" data-batch-id="'+batchId+'" '+(pending?'disabled':'')+'>'+(pending?'请先完成全部字段复核':'签署并正式入档')+'</button></section>';
 }
 
 async function commitScanBatch(batchId){
@@ -97,4 +98,48 @@ async function commitScanBatch(batchId){
   const button=$('#commitScanBatch');button.disabled=true;button.textContent='正在写入数据库…';
   try{const result=await backendRequest('/api/imports/commit',{method:'POST',body:JSON.stringify({batchId,childId,scores})});toast(result.profileId?'档案与初始画像已保存':'历史档案已保存');await openScanBatch(batchId);}
   catch(error){toast(error.message);button.disabled=false;button.textContent='签署并正式入档';}
+}
+
+async function runProfileAgent(batchId){
+  const childId=$('#scanChildId')?.value;if(!childId){toast('请先在下方选择目标儿童');return;}
+  const button=$('#runProfileAgent');button.disabled=true;button.textContent='正在分析逐页文字证据…';
+  try{const result=await backendRequest('/api/agent/analyze',{method:'POST',body:JSON.stringify({batchId,childId})});renderProfileAgentReview(result);}
+  catch(error){toast(error.message);button.disabled=false;button.textContent='从文字生成画像与题目';}
+}
+
+function renderProfileAgentReview(result){
+  const area=$('#scanBatchList'),profile=result.profile,solution=result.solution,evidence=result.evidence||[];
+  window.__profileAgentDraft=result;
+  area.innerHTML='<div class="agent-review-head"><button class="btn-ghost" id="backFromAgent">← 返回批次</button><div><b>🧠 Agent画像待专业审核</b><small>共 '+evidence.length+' 条证据 · 总体置信度 '+Math.round(profile.confidence*100)+'%</small></div></div><div class="agent-disclaimer">'+esc(profile.notice)+'</div>'+
+    (solution.riskFlags.length?'<div class="agent-risk">⛔ 档案中发现风险候选：'+solution.riskFlags.map(esc).join('、')+'。题目可以预览，但线上训练保持暂停，需人工核查。</div>':'')+
+    '<section class="agent-domain-grid">'+profile.domains.map(domain=>renderAgentDomain(domain,evidence)).join('')+'</section>'+
+    '<section class="agent-solution-preview"><h4>自动生成的训练解决方案</h4><div class="agent-priorities">优先领域：'+solution.priorityDomains.slice(0,3).map(key=>profile.domains.find(x=>x.domain===key)?.name).join(' → ')+'</div><div class="agent-module-list">'+solution.modulePlans.slice().sort((a,b)=>a.priority-b.priority).slice(0,8).map(plan=>'<article><b>'+esc(plan.moduleId+' '+plan.moduleName)+'</b><small>每周 '+plan.frequencyPerWeek+' 次 · 每次 '+plan.minutes+' 分钟 · 难度 '+plan.parameters.difficulty+'</small><p>'+esc(plan.reason)+'</p></article>').join('')+'</div><h4>题目预览</h4><div class="agent-question-preview">'+solution.questions.slice(0,6).map(q=>'<article><span>'+esc(q.target)+'</span><div><b>'+esc(q.moduleName)+'</b><p>'+esc(q.prompt)+'</p><small>选项：'+q.choices.map(esc).join('　')+'</small></div></article>').join('')+'</div></section>'+
+    '<section class="agent-approval"><label><input id="agentReviewConfirm" type="checkbox"> 我已核对证据、能力等级、风险标记和题目起点；确认这是训练建议，不是医学诊断。</label><button class="btn-primary" id="approveProfileAgent">签署画像并启用个性化题目</button></section>';
+  $('#backFromAgent').onclick=()=>openScanBatch(profile.sourceBatchId);$('#approveProfileAgent').onclick=approveProfileAgent;
+}
+
+function renderAgentDomain(domain,evidence){
+  const items=evidence.filter(x=>x.domain===domain.domain).slice(0,4);
+  return '<article class="agent-domain-card level-'+domain.level+'"><header><div><b>'+domain.domain+' · '+esc(domain.name)+'</b><small>'+esc(domain.label)+'</small></div><span>'+Math.round(domain.confidence*100)+'%</span></header><label>专业确认等级<select data-agent-level="'+domain.domain+'">'+[0,1,2,3,4].map(level=>'<option value="'+level+'" '+(level===domain.level?'selected':'')+'>L'+level+' · '+['资料不足','充分支持','提示下完成','基本独立','稳定与泛化'][level]+'</option>').join('')+'</select></label>'+(domain.contradiction?'<div class="agent-conflict">⚠️ 同时存在优势与困难证据，请重点核对</div>':'')+'<div class="agent-evidence">'+(items.map(item=>'<blockquote class="'+item.direction+'"><small>第'+item.page+'页 · '+Math.round(item.confidence*100)+'%</small>'+esc(item.text)+'</blockquote>').join('')||'<p>没有足够文字证据，将使用探索性起点。</p>')+'</div></article>';
+}
+
+async function approveProfileAgent(){
+  if(!$('#agentReviewConfirm').checked){toast('请先完成专业核对确认');return;}
+  const levels={};$$('[data-agent-level]').forEach(select=>levels[select.dataset.agentLevel]=+select.value);
+  const button=$('#approveProfileAgent');button.disabled=true;button.textContent='正在保存画像和题目集…';
+  try{
+    const result=await backendRequest('/api/agent/approve',{method:'POST',body:JSON.stringify({runId:window.__profileAgentDraft.runId,levels})});
+    const draft=window.__profileAgentDraft,childId=draft.profile.childId,domainDifficulty={};
+    draft.solution.modulePlans.forEach(item=>domainDifficulty[item.domain]=Math.max(domainDifficulty[item.domain]||1,item.parameters.difficulty));
+    plans[childId]={childId,generatedAt:new Date().toISOString(),source:'profile-agent',agentRunId:draft.runId,steps:[
+      {dim:'attention',difficulty:domainDifficulty.A||1,reason:'档案画像：注意与感知训练起点'},
+      {dim:'memory',difficulty:domainDifficulty.B||1,reason:'档案画像：记忆训练起点'},
+      {dim:'logic',difficulty:domainDifficulty.C||1,reason:'档案画像：执行与逻辑训练起点'}]};
+    enhancedState.reviews.push({id:uid(),childId,planGeneratedAt:plans[childId].generatedAt,result:'accepted',reviewer:currentRole,reason:'专业审核档案画像Agent题目集',ts:Date.now()});
+    const riskMap={癫痫:'seizure',自伤:'selfHarm',攻击:'aggression',吞咽:'swallowing',跌倒:'fall','严重情绪爆发':'meltdown'};
+    draft.solution.riskFlags.forEach(label=>{if(!enhancedState.riskFlags.some(x=>x.childId===childId&&x.label===label&&x.status==='active'))enhancedState.riskFlags.push({id:uid(),childId,riskId:riskMap[label]||'other',label,status:'active',note:'由档案画像Agent发现并经专业签署，恢复训练前需人工核查',ts:Date.now()});});
+    saveAll();saveEnhanced();agentQuestionCache.delete(childId);
+    toast('画像已生效，'+result.questionCount+'道个性化题目已进入儿童训练');openScanBatch(draft.profile.sourceBatchId);
+  }
+  catch(error){toast(error.message);button.disabled=false;button.textContent='签署画像并启用个性化题目';}
 }

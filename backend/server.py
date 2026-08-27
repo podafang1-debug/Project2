@@ -40,8 +40,17 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class ClosingConnection(sqlite3.Connection):
+    """让 `with connect()` 在提交/回滚后真正关闭连接，避免批量OCR耗尽句柄。"""
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 def connect() -> sqlite3.Connection:
-    database = sqlite3.connect(DATABASE_FILE)
+    database = sqlite3.connect(DATABASE_FILE, factory=ClosingConnection)
     database.row_factory = sqlite3.Row
     database.execute("PRAGMA foreign_keys = ON")
     return database

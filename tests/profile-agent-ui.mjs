@@ -3,7 +3,7 @@ const require=createRequire(import.meta.url);
 const {chromium}=require('C:/Users/ASUS1/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
 const page=await browser.newPage();page.setDefaultTimeout(7000);const errors=[];page.on('pageerror',error=>errors.push(error.message));
-await page.goto(process.env.SMOKE_URL||'http://127.0.0.1:8765/index.html',{waitUntil:'networkidle'});
+await page.goto(process.env.SMOKE_URL||'http://127.0.0.1:8876/index.html',{waitUntil:'networkidle'});
 await page.click('[data-role="teacher"]');await page.fill('#pinInput','1234');await page.click('#loginBtn');
 await page.click('[data-tab="setting"]');await page.click('#openScanImport');
 await page.evaluate(()=>{
@@ -14,7 +14,7 @@ await page.waitForSelector('.agent-domain-card');if(await page.locator('.agent-d
 await page.evaluate(()=>{
   const childId=children[0].id;plans[childId]={childId,generatedAt:'agent-test',steps:[{dim:'attention',difficulty:1},{dim:'memory',difficulty:1},{dim:'logic',difficulty:1}]};enhancedState.reviews.push({id:'review-test',childId,planGeneratedAt:'agent-test',result:'accepted',ts:Date.now()});agentQuestionCache.set(childId,{questions:[{questionId:'Q1',moduleId:'P01',moduleName:'颜色识别',domain:'A',difficulty:1,prompt:'请找到星星',target:'⭐',choices:['⭐','🌙'],parameters:{prompt:'视觉+语音'},encouragement:'做得好！',errorFeedback:'慢慢来'}]});openTrainer(childId,'P01',1,null);
 });
-await page.waitForSelector('.agent-training-source');await page.click('[data-agent-choice="0"]');await page.waitForSelector('.agent-answer-celebration.ok');
+await page.waitForSelector('.agent-training-source');await page.locator('[data-agent-choice]').filter({hasText:'⭐'}).click();await page.waitForSelector('.agent-answer-celebration.ok');
 if(errors.length)throw new Error(errors.join('; '));
 console.log('Profile agent UI passed: six-domain review and effective personalized question execution.');
 await browser.close();

@@ -34,7 +34,7 @@ async function uploadScanPdfs(){
   const button=$('#uploadScanPdfs');button.disabled=true;button.textContent='正在加密上传…';
   try{
     const form=new FormData();files.forEach(file=>form.append('files',file,file.name));
-    const response=await fetch('/api/imports/batches',{method:'POST',headers:{'X-Role':currentRole},body:form});const result=await response.json();
+    const result=await backendRequest('/api/imports/batches',{method:'POST',body:form});
     if(!response.ok)throw new Error(result.error||'上传失败');
     toast('已接收 '+result.accepted+' 份，开始本地识别');$('#scanPdfFiles').value='';await refreshScanBatches();
   }catch(error){toast(error.message);}finally{button.disabled=false;button.textContent='上传并开始离线识别';}
@@ -45,24 +45,34 @@ async function refreshScanBatches(){
   if(!BACKEND_API.available){list.innerHTML='<div class="scan-offline">⚠️ 当前是静态预览。请运行 <b>python backend/server.py</b> 后再使用真实扫描档案导入。</div>';return;}
   try{
     const data=await backendRequest('/api/imports/batches');
-    list.innerHTML=(data.batches||[]).map(batch=>'<button class="scan-batch '+batch.status+'" data-scan-batch="'+esc(batch.batch_id)+'"><span class="scan-status-dot"></span><div><b>'+esc(scanStatusName[batch.status]||batch.status)+'</b><small>'+batch.processed_documents+' / '+batch.total_documents+' 份已处理</small></div><time>'+new Date(batch.created_at).toLocaleString()+'</time><strong>查看 ›</strong></button>').join('')||'<div class="empty">还没有导入批次</div>';
+    list.innerHTML=(data.batches||[]).map(batch=>{const pageProgress=batch.total_pages?(' · '+batch.processed_pages+' / '+batch.total_pages+' 页'):'';const error=batch.status==='failed'&&batch.error_message?'<em>⚠️ '+esc(batch.error_message)+'</em>':'';return '<button class="scan-batch '+batch.status+'" data-scan-batch="'+esc(batch.batch_id)+'"><span class="scan-status-dot"></span><div><b>'+esc(scanStatusName[batch.status]||batch.status)+'</b><small>'+batch.processed_documents+' / '+batch.total_documents+' 份已处理'+pageProgress+'</small>'+error+'</div><time>'+new Date(batch.created_at).toLocaleString()+'</time><strong>查看 ›</strong></button>';}).join('')||'<div class="empty">还没有导入批次</div>';
     $$('[data-scan-batch]',list).forEach(button=>button.onclick=()=>openScanBatch(button.dataset.scanBatch));
     if((data.batches||[]).some(x=>['queued','processing'].includes(x.status)))setTimeout(refreshScanBatches,3000);
   }catch(error){list.innerHTML='<div class="scan-offline">读取失败：'+esc(error.message)+'</div>';}
 }
 
-async function openScanBatch(batchId){
-  const area=$('#scanBatchList');area.innerHTML='<div class="empty">正在读取识别结果…</div>';
+async function openScanBatch(batchId,options={}){
+  const area=$('#scanBatchList');
+  // 字段复核时保留工作台自身的滚动位置。不能先清空内容，否则浏览器会
+  // 因容器瞬间变矮而把 scrollTop 强制归零，随后即使恢复也会跳到顶部。
+  const sheet=$('#sheet');
+  const savedScroll=Number.isFinite(options.preserveScroll)?options.preserveScroll:null;
+  if(savedScroll===null)area.innerHTML='<div class="empty">正在读取识别结果…</div>';
   try{
     const data=await backendRequest('/api/imports/batches/'+encodeURIComponent(batchId));renderScanBatch(data);
+    if(savedScroll!==null){
+      sheet.scrollTop=savedScroll;
+      requestAnimationFrame(()=>{sheet.scrollTop=savedScroll;});
+    }
   }catch(error){area.innerHTML='<div class="scan-offline">'+esc(error.message)+'</div>';}
 }
 
 function renderScanBatch(data){
   const area=$('#scanBatchList'),batch=data.batch,fields=data.fields||[],pending=fields.filter(x=>x.review_status==='pending').length;
   area.innerHTML='<div class="scan-detail-head"><button class="btn-ghost" id="backToBatches">← 返回批次</button><div><b>'+esc(scanStatusName[batch.status]||batch.status)+'</b><small>'+batch.processed_documents+' / '+batch.total_documents+' 份 · '+pending+' 个字段待复核</small></div></div>'+
-    '<div class="scan-documents">'+data.documents.map(doc=>'<article><span>📄</span><div><b>'+esc(doc.original_name)+'</b><small>'+doc.page_count+' 页 · '+esc(scanStatusName[doc.status]||doc.status)+'</small></div></article>').join('')+'</div>'+
-    (batch.status==='processing'?'<div class="scan-processing">⏳ 正在本机逐页识别，请稍后刷新。<button class="btn-ghost" id="refreshScanBatch">刷新进度</button></div>':'')+
+    '<div class="scan-documents">'+data.documents.map(doc=>'<article><span>📄</span><div><b>'+esc(doc.original_name)+'</b><small>'+doc.processed_pages+' / '+doc.page_count+' 页 · '+esc(scanStatusName[doc.status]||doc.status)+'</small></div></article>').join('')+'</div>'+
+    (batch.status==='processing'?'<div class="scan-processing">⏳ 正在本机逐页识别，关闭此窗口也不会停止。已保存页面可在中断后续跑。<button class="btn-ghost" id="refreshScanBatch">刷新进度</button></div>':'')+
+    (batch.status==='failed'?'<div class="scan-offline">⚠️ '+esc(batch.error_message||'识别任务异常结束，请重启本地服务后续跑。')+'</div>':'')+
     '<section class="scan-fields"><h4>专业字段复核</h4><p>请对照页码和证据片段修改后确认；医疗关键字段即使置信度高也不会自动通过。</p>'+(fields.map(renderScanField).join('')||'<div class="empty">尚未提取到候选字段。可等待识别完成，或由专业人员在正式档案中手工补录。</div>')+'</section>'+
     (batch.status==='review'?renderScanCommit(batch.batch_id,pending):'');
   $('#backToBatches').onclick=refreshScanBatches;if($('#refreshScanBatch'))$('#refreshScanBatch').onclick=()=>openScanBatch(batch.batch_id);
@@ -79,7 +89,8 @@ function renderScanField(field){
 
 async function reviewScanField(fieldId,decision){
   const input=$('[data-field-value="'+fieldId+'"]'),button=$('[data-field-'+(decision==='approved'?'approve':'reject')+'="'+fieldId+'"]');button.disabled=true;
-  try{await backendRequest('/api/imports/review',{method:'POST',body:JSON.stringify({fieldId,decision,value:input.value})});const batchId=$('#commitScanBatch')?.dataset.batchId||$('.scan-detail-head')?.dataset.batchId;toast(decision==='approved'?'字段已确认':'字段已排除');await openScanBatch(currentScanBatchId());}
+  const savedScroll=$('#sheet').scrollTop;
+  try{await backendRequest('/api/imports/review',{method:'POST',body:JSON.stringify({fieldId,decision,value:input.value})});toast(decision==='approved'?'字段已确认':'字段已排除');await openScanBatch(currentScanBatchId(),{preserveScroll:savedScroll});}
   catch(error){toast(error.message);button.disabled=false;}
 }
 
@@ -129,15 +140,16 @@ async function approveProfileAgent(){
   const button=$('#approveProfileAgent');button.disabled=true;button.textContent='正在保存画像和题目集…';
   try{
     const result=await backendRequest('/api/agent/approve',{method:'POST',body:JSON.stringify({runId:window.__profileAgentDraft.runId,levels})});
-    const draft=window.__profileAgentDraft,childId=draft.profile.childId,domainDifficulty={};
-    draft.solution.modulePlans.forEach(item=>domainDifficulty[item.domain]=Math.max(domainDifficulty[item.domain]||1,item.parameters.difficulty));
-    plans[childId]={childId,generatedAt:new Date().toISOString(),source:'profile-agent',agentRunId:draft.runId,steps:[
+    const draft=window.__profileAgentDraft,childId=draft.profile.childId,domainDifficulty={},moduleDifficulty={},domainStats={};
+    draft.solution.modulePlans.forEach(item=>{domainDifficulty[item.domain]=Math.max(domainDifficulty[item.domain]||1,item.parameters.difficulty);moduleDifficulty[item.moduleId]=item.parameters.difficulty;});
+    draft.profile.domains.forEach(item=>domainStats[item.domain]={attempts:0,independentRate:null,confidence:item.confidence});
+    plans[childId]={childId,generatedAt:new Date().toISOString(),source:'profile-agent',agentRunId:draft.runId,moduleDifficulty,domainStats,steps:[
       {dim:'attention',difficulty:domainDifficulty.A||1,reason:'档案画像：注意与感知训练起点'},
       {dim:'memory',difficulty:domainDifficulty.B||1,reason:'档案画像：记忆训练起点'},
       {dim:'logic',difficulty:domainDifficulty.C||1,reason:'档案画像：执行与逻辑训练起点'}]};
     enhancedState.reviews.push({id:uid(),childId,planGeneratedAt:plans[childId].generatedAt,result:'accepted',reviewer:currentRole,reason:'专业审核档案画像Agent题目集',ts:Date.now()});
     const riskMap={癫痫:'seizure',自伤:'selfHarm',攻击:'aggression',吞咽:'swallowing',跌倒:'fall','严重情绪爆发':'meltdown'};
-    draft.solution.riskFlags.forEach(label=>{if(!enhancedState.riskFlags.some(x=>x.childId===childId&&x.label===label&&x.status==='active'))enhancedState.riskFlags.push({id:uid(),childId,riskId:riskMap[label]||'other',label,status:'active',note:'由档案画像Agent发现并经专业签署，恢复训练前需人工核查',ts:Date.now()});});
+    draft.solution.riskFlags.forEach(label=>{if(!enhancedState.riskFlags.some(x=>x.childId===childId&&x.label===label&&x.status==='active')){const flag={id:'risk_'+uid(),childId,type:riskMap[label]||'other',label,status:'active',note:'由档案画像Agent发现并经专业签署，恢复训练前需人工核查',ts:Date.now()};enhancedState.riskFlags.push(flag);backendSaveSafetyFlag(flag);}});
     saveAll();saveEnhanced();agentQuestionCache.delete(childId);
     toast('画像已生效，'+result.questionCount+'道个性化题目已进入儿童训练');openScanBatch(draft.profile.sourceBatchId);
   }

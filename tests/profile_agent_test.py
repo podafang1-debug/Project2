@@ -17,7 +17,7 @@ assert domains["A"]["level"] <= 2, "注意困难不应被解释为高能力"
 assert domains["B"]["level"] == 0, "无记忆证据时必须是资料不足"
 assert not result["solution"]["riskFlags"], "‘无癫痫史’不能触发风险暂停"
 assert len(result["solution"]["modulePlans"]) == 22
-assert len(result["solution"]["questions"]) == 22
+assert len(result["solution"]["questions"]) == 66
 for question in result["solution"]["questions"]:
     assert question["target"] in question["choices"], f"题目不可作答：{question['moduleId']}"
     assert 1 <= len(question["choices"]) <= 4

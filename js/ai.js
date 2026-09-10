@@ -1,6 +1,6 @@
 /* ============ 本地 AI 分析引擎（启发式，非云端大模型） ============ */
 function analyze(childId){
-  const recs=records.filter(r=>r.childId===childId);
+  const recs=records.filter(r=>r.childId===childId&&r.source!=='baseline-game').sort((a,b)=>(a.ts||0)-(b.ts||0));
   const dims=["attention","memory","logic"];
   const res={};
   dims.forEach(d=>{

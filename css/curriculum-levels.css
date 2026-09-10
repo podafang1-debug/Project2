@@ -1,0 +1,31 @@
+/* 20 关课程地图与儿童自主游戏偏好 */
+.curriculum-header{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:16px}
+.curriculum-preference-button{border:2px solid #d9e2f2;background:#fff;color:#26334d;border-radius:18px;padding:12px 16px;font-weight:800;cursor:pointer}
+.curriculum-level-intro{text-align:center;padding:8px 4px}
+.curriculum-level-intro .level-big-icon{display:block;font-size:58px;margin:8px}
+.curriculum-level-intro>small{font-weight:800;color:#7a8498}
+.curriculum-level-intro h2{font-size:30px;margin:6px 0 16px}
+.curriculum-level-intro ul{list-style:none;padding:0;margin:0 0 16px;display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.curriculum-level-intro li{background:#f6f8fc;border:2px solid #e5eaf3;border-radius:18px;padding:12px 6px;min-width:0}
+.curriculum-level-intro li>span{display:block;font-size:28px}
+.curriculum-level-intro li b,.curriculum-level-intro li small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.curriculum-level-intro li small{color:#758096;margin-top:4px}
+.curriculum-level-intro .btn-ghost,.curriculum-level-intro .btn-primary{width:100%;margin-top:8px}
+.curriculum-pref-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}
+.curriculum-pref-grid button{border:2px solid #dfe5f0;background:#fff;border-radius:18px;padding:13px 8px;cursor:pointer;color:#26334d}
+.curriculum-pref-grid button span,.curriculum-pref-grid button b,.curriculum-pref-grid button small{display:block}
+.curriculum-pref-grid button span{font-size:28px}.curriculum-pref-grid button small{margin-top:4px;color:#778197}
+.curriculum-pref-grid button.off{border-color:#ffb9ac;background:#fff2ef;opacity:.72}
+.curriculum-pref-grid button.off small{color:#c34e3b;font-weight:800}
+.curriculum-pref-note{text-align:center;color:#6e7890}
+.curriculum-run-dots{display:flex;gap:8px;margin:6px 0 18px}
+.curriculum-run-dots i{height:8px;flex:1;border-radius:9px;background:#e5e9f1;transition:.25s}
+.curriculum-run-dots i.on{background:linear-gradient(90deg,#ffb23f,#ff7b5d)}
+.curriculum-game-tag{display:table;margin:0 auto 10px;background:#eef4ff;color:#315fbd;border-radius:99px;padding:8px 14px;font-weight:900}
+.level-node.interest-match{box-shadow:0 0 0 5px rgba(247,177,49,.22),0 10px 28px rgba(31,55,99,.12)}
+@media(max-width:760px){
+  .curriculum-header{grid-template-columns:1fr auto}.curriculum-header .adventure-score{grid-row:1/3;grid-column:2}
+  .curriculum-preference-button{grid-column:1;font-size:13px}
+  .curriculum-level-intro ul{grid-template-columns:repeat(2,1fr)}
+  .curriculum-pref-grid{grid-template-columns:repeat(3,1fr)}
+}

@@ -4,7 +4,7 @@ const {chromium}=require('C:/Users/ASUS1/.cache/codex-runtimes/codex-primary-run
 const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
 const page=await browser.newPage();page.setDefaultTimeout(6000);
 const errors=[];page.on('pageerror',error=>errors.push(error.message));
-await page.goto(process.env.SMOKE_URL||'http://127.0.0.1:8765/index.html',{waitUntil:'networkidle'});
+await page.goto(process.env.SMOKE_URL||'http://127.0.0.1:8876/index.html',{waitUntil:'networkidle'});
 await page.click('[data-role="teacher"]');await page.fill('#pinInput','1234');await page.click('#loginBtn');
 await page.click('[data-tab="setting"]');await page.waitForSelector('#openScanImport');await page.click('#openScanImport');
 await page.waitForSelector('.scan-pipeline');await page.waitForSelector('#scanBatchList');

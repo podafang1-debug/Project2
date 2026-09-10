@@ -11,6 +11,8 @@ import re
 import uuid
 from datetime import datetime, timezone
 
+from question_variants import ALTERNATES, MEMORY_PREVIEWS, MODES, OBSERVED_ITEMS
+
 DOMAINS = {
     "A": {"name": "注意与感知", "keywords": ("注意", "专注", "分心", "视觉", "听觉", "感知", "注视", "搜索", "辨别", "颜色", "形状")},
     "B": {"name": "记忆", "keywords": ("记忆", "回忆", "记住", "再认", "序列", "保持", "遗忘", "工作记忆")},
@@ -156,19 +158,31 @@ def parameters_for(level: int, prompts: list[str]) -> dict:
     }
 
 
-def make_question(module_id: str, profile: dict) -> dict:
+def make_question(module_id: str, profile: dict, variant_index: int = 0) -> dict:
     name, domain, prompt, target, choices = MODULES[module_id]
+    mode = MODES.get(module_id, "choice")
+    if mode in {"spoken", "guided"}:
+        prompt, cue = OBSERVED_ITEMS[module_id][variant_index]
+        target, choices = "自己完成", ["自己完成", "帮助后完成", "还没完成"]
+    else:
+        cue = None
+        if variant_index:
+            prompt, target, choices = ALTERNATES[module_id][variant_index - 1]
     params = parameters_for(profile["level"], profile.get("promptLevels", []))
-    count = max(1, min(len(choices), params["optionCount"]))
+    count = len(choices) if mode in {"spoken", "guided"} else max(2, min(len(choices), params["optionCount"]))
     selected = choices[:count]
     if target not in selected:
         selected[-1] = target
+    offset = (list(MODULES).index(module_id) + variant_index) % len(selected)
+    selected = selected[offset:] + selected[:offset]
+    previews = MEMORY_PREVIEWS.get(module_id, [None, None, None])
     return {"questionId": identifier("Q"), "moduleId": module_id, "moduleName": name,
             "domain": domain, "difficulty": params["difficulty"], "prompt": prompt,
             "target": target, "choices": selected, "targetCue": target if "一样" in prompt else None,
+            "mode": mode, "cue": cue, "preview": previews[variant_index],
+            "spokenPrompt": prompt if mode == "audio" else None,
             "parameters": params, "encouragement": "谢谢你认真试一试！ 🌟",
             "errorFeedback": "没关系，我们一起慢慢看一看 👀"}
-
 
 def build_solution(domain_profiles: list[dict], risks: list[str]) -> dict:
     by_domain = {item["domain"]: item for item in domain_profiles}
@@ -181,7 +195,7 @@ def build_solution(domain_profiles: list[dict], risks: list[str]) -> dict:
                              "priority": priority, "frequencyPerWeek": 4 if priority <= 2 else 2,
                              "minutes": 5 if profile["level"] <= 2 else 8, "parameters": params,
                              "reason": f"{profile['name']}：{profile['label']}，依据 {profile['evidenceCount']} 条档案证据"})
-        questions.append(make_question(module_id, profile))
+        questions.extend(make_question(module_id, profile, variant_index) for variant_index in range(3))
     return {"solutionId": identifier("SOL"), "status": "draft", "onlinePaused": bool(risks),
             "riskFlags": risks, "priorityDomains": priority_domains, "modulePlans": module_plans,
             "questions": questions, "safety": "出现癫痫、自伤、攻击、严重情绪爆发、吞咽或跌倒风险时暂停线上训练并联系专业人员。"}

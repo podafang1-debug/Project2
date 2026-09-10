@@ -27,13 +27,12 @@ const TRAINING_CATALOG=[
   ["D03","模仿/节律动作","F","logic","按节律模仿动作并记录完成度"]
 ].map(([id,name,domain,engine,goal])=>({id,name,domain,engine,goal}));
 
-// 为新增角色扩展现有权限对象；原型密码仅用于演示，正式部署必须替换为服务端认证。
+// 前端权限只负责界面裁剪；正式授权由服务端数据库角色权限表决定。
 Object.assign(PERMS,{
   child:{manage:false,train:true,viewReport:true,viewAI:false,settings:false,accounts:false},
   admin:{...PERMS.admin,viewAI:false,org:true,audit:true,content:true}
 });
 Object.assign(ROLE_NAME,{child:"儿童",teacher:"康复医疗专业人员",admin:"内容与机构管理员"});
-accounts.child=accounts.child||{pin:"1111"};
 
 /** 每种身份拥有稳定的颜色和图形；登录页、选中态和系统顶栏共用同一份配置。 */
 const ROLE_VISUALS={
@@ -47,34 +46,10 @@ const ROLE_VISUALS={
 const enhancedState={
   goals:lsGet("goals",[]),assessments:lsGet("assessments",[]),reviews:lsGet("reviews",[]),
   familyLogs:lsGet("familyLogs",[]),auditLogs:lsGet("auditLogs",[]),materials:lsGet("materials",[]),
-  consents:lsGet("consents",[]),organizations:lsGet("organizations",[{id:"org1",name:"康宇儿童发展中心",classes:["启航班","成长班"]}])
+  consents:lsGet("consents",[]),homeTaskCompletions:lsGet("homeTaskCompletions",[]),dataRequests:lsGet("dataRequests",[]),organizations:lsGet("organizations",[{id:"org1",name:"康宇儿童发展中心",classes:["启航班","成长班"]}])
 };
 function saveEnhanced(){Object.entries(enhancedState).forEach(([k,v])=>lsSet(k,v));}
-function audit(action,detail){enhancedState.auditLogs.unshift({id:uid(),action,detail,role:currentRole,ts:Date.now()});enhancedState.auditLogs=enhancedState.auditLogs.slice(0,200);saveEnhanced();}
-
-// 动态补齐登录角色卡，保持原有登录流程与键盘操作可用。
-function addRoleCard(role,label,sub){
-  if($(`.role-card[data-role="${role}"]`))return;
-  const button=document.createElement("button");button.className="role-card "+role;button.dataset.role=role;
-  button.innerHTML='<span class="check">✓</span><span class="ic"></span><b>'+label+'</b><small>'+sub+'</small>';
-  button.onclick=()=>{pickRole=role;$$('.role-card').forEach(x=>x.classList.toggle('on',x===button));$('#pickedLine').textContent='已选择：'+label;$('#pinInput').focus();$('#loginErr').textContent='';};
-  $('.role-grid').appendChild(button);
-}
-addRoleCard("child","儿童训练","游戏·奖励");
-// 清除旧版本动态生成的角色卡，避免浏览器缓存升级后仍显示六角色。
-['doctor','reviewer'].forEach(role=>$(`.role-card[data-role="${role}"]`)?.remove());
-
-// 登录卡片严格按业务文档顺序排列，避免动态追加角色破坏信息层级。
-['child','parent','teacher','admin'].forEach(role=>{
-  const card=$(`.role-card[data-role="${role}"]`);if(card)$('.role-grid').appendChild(card);
-});
-
-// 统一刷新静态与动态角色卡，避免HTML和脚本维护两套图标规则。
-$$('.role-card').forEach(card=>{
-  const visual=ROLE_VISUALS[card.dataset.role];if(!visual)return;
-  card.style.setProperty('--role-color',visual.color);card.style.setProperty('--role-soft',visual.soft);
-  card.querySelector('.ic').innerHTML=svg(visual.icon,visual.color,38);
-});
+function audit(action,detail){const user=typeof BACKEND_API!=='undefined'?BACKEND_API.user:null;enhancedState.auditLogs.unshift({id:uid(),action,detail,role:currentRole,actorUserId:user?.userId||('local_'+currentRole),actorName:user?.displayName||ROLE_NAME[currentRole]||currentRole,ts:Date.now()});enhancedState.auditLogs=enhancedState.auditLogs.slice(0,1000);saveEnhanced();}
 
 /**
  * 角色导航矩阵：隐藏无权入口只是第一层体验控制，业务函数中的 PERMS 校验仍是第二层。
@@ -113,10 +88,18 @@ enterApp=function(){
     $('#roleBadge').innerHTML='<span class="role-badge-icon">'+svg(visual.icon,visual.color,20)+'</span><span><small>当前身份</small><b>'+visual.label+'</b></span>';
   }
   const allowed=(ROLE_TABS[currentRole]||[]).filter(dbCanOpenTab);
-  $$('.tab').forEach(tab=>tab.classList.toggle('hidden',!allowed.includes(tab.dataset.tab)));
+  $$('.tab').forEach(tab=>{
+    tab.classList.toggle('hidden',!allowed.includes(tab.dataset.tab));
+    const labels=currentRole==='parent'?{train:'陪练',report:'首页',setting:'我的'}:{archive:'档案',train:'训练',ai:'AI方案',report:'报表',setting:'设置'};
+    const textNode=[...tab.childNodes].find(node=>node.nodeType===Node.TEXT_NODE);
+    if(textNode&&labels[tab.dataset.tab])textNode.textContent=labels[tab.dataset.tab];
+  });
   // 顶部操作也遵循角色权限：无训练权不显示今日训练，无备份权不显示备份/恢复。
   // 儿童端直接使用闯关地图，不再展示专业排程区，避免重复入口和越权文案。
   $('#todayBox').classList.toggle('hidden',!dbCan(DB_ACTIONS.TRAIN)||currentRole==='child');
+  const todayTitle=$('#todayBox h2'),todayHint=$('#todayBox .hint');
+  if(todayTitle)todayTitle.childNodes[todayTitle.childNodes.length-1].textContent=currentRole==='parent'?'今日陪练任务':'今日训练任务';
+  if(todayHint)todayHint.textContent=currentRole==='parent'?'这里只显示专业人员已签署并下发的家庭任务。点「开始」进入陪练。':'系统依据已审核方案排程；逾期任务已标红，点「开始」进入训练。';
   $('#btnExport').classList.toggle('hidden',!(dbCan(DB_ACTIONS.BACKUP_LIMITED)||dbCan(DB_ACTIONS.BACKUP_FULL)));
   $('#btnImport').classList.toggle('hidden',!(dbCan(DB_ACTIONS.BACKUP_LIMITED)||dbCan(DB_ACTIONS.BACKUP_FULL)));
   let logout=$('#globalLogout');
@@ -144,22 +127,28 @@ openTrainer=function(childId,moduleId,difficulty,onDone){
 renderTrain=function(c){
   if(!dbCan(DB_ACTIONS.TRAIN)){c.innerHTML='<div class="empty">当前账号无训练权限。专业人员可在 AI 方案中审核，家长和儿童可执行已授权任务。</div>';return;}
   if(!children.length){c.innerHTML='<div class="empty">请先建立儿童档案</div>';return;}
-  // 儿童与家长账号只绑定当前儿童；专业账号才可在授权儿童间切换。
   const authorizedIds=dbAuthorizedChildIds();
   const scopedChildren=children.filter(ch=>authorizedIds.includes(ch.id));
-  let html='<div class="sec-title">'+svg("brain","#F7A14F",20)+(currentRole==='child'?'我的训练地图':'六域训练地图 · 22个模块')+'</div>'+
+  if(!scopedChildren.length){c.innerHTML='<div class="empty">当前账号尚未绑定儿童，请联系机构确认授权关系。</div>';return;}
+  const familyMode=currentRole==='parent';
+  const signedPlan=familyMode&&typeof effectiveClinicalPlan==='function'?effectiveClinicalPlan(activeChild):null;
+  const plannedRows=new Map((signedPlan?.rows||[]).map(row=>[row.moduleId,row]));
+  const visibleModules=familyMode?TRAINING_CATALOG.filter(module=>plannedRows.has(module.id)&&module.delivery!=='offline'):TRAINING_CATALOG;
+  let html='<div class="sec-title">'+svg("brain","#F7A14F",20)+(familyMode?'已下发的家庭陪练':'六域训练地图 · 22个模块')+'</div>'+
     '<div class="field"><label>'+(scopedChildren.length>1?'选择儿童':'当前儿童')+'</label><select id="trainChild" '+(scopedChildren.length<2?'disabled':'')+'>'+scopedChildren.map(ch=>'<option value="'+ch.id+'"'+(ch.id===activeChild?' selected':'')+'>'+esc(ch.name)+'</option>').join('')+'</select></div>'+
-    '<div class="note">训练反馈温和、无惩罚；连续2次正确/错误只升降1档。动作与社交类任务应由成人陪同，出现明显不适请立即停止。</div>';
+    '<div class="note">'+(familyMode?'这里只显示专业人员已签署并下发的家庭任务。短时、轻松、有回应；出现明显不适请立即停止。':'训练反馈温和、无惩罚；连续2次正确/错误只升降1档。动作与社交类任务应由成人陪同，出现明显不适请立即停止。')+'</div>';
+  if(familyMode&&!signedPlan)html+='<div class="empty">尚未收到专业人员签署下发的家庭训练方案。</div>';
+  else if(familyMode&&!visibleModules.length)html+='<div class="empty">当前方案没有可在线执行的家庭任务，请查看首页或联系专业人员。</div>';
   Object.entries(ABILITY_DOMAINS).forEach(([key,domain])=>{
-    html+='<section class="domain-section"><h3 style="color:'+domain.color+'">'+key+' · '+domain.name+'</h3><div class="module-grid">';
-    TRAINING_CATALOG.filter(x=>x.domain===key).forEach(m=>html+='<button class="module-card" data-module="'+m.id+'" style="--module-color:'+domain.color+'"><b>'+m.id+' · '+m.name+'</b><small>'+m.goal+'</small><span>难度 1–5 · 点击开始</span></button>');
+    const modules=visibleModules.filter(x=>x.domain===key);if(!modules.length)return;
+    html+='<section class="domain-section"><h3 style="color:'+domain.color+'">'+(familyMode?'':key+' · ')+domain.name+'</h3><div class="module-grid">';
+    modules.forEach(module=>{const planned=plannedRows.get(module.id),difficulty=clamp(+(planned?.difficulty||2),1,5);html+='<button class="module-card" data-module="'+module.id+'" data-difficulty="'+difficulty+'" style="--module-color:'+domain.color+'"><b>'+module.name+'</b><small>'+module.goal+'</small><span>建议 '+(planned?.duration||5)+' 分钟 · 难度 '+difficulty+' · 点击开始</span></button>';});
     html+='</div></section>';
   });
   c.innerHTML=html;
   $('#trainChild').onchange=e=>{activeChild=e.target.value;lsSet('activeChild',activeChild);renderTrain(c);};
-  $$('.module-card',c).forEach(b=>b.onclick=()=>{const childId=$('#trainChild').value;if(!dbCanAccessChild(childId)){toast('无权访问该儿童');return;}openTrainer(childId,b.dataset.module,2);});
+  $$('.module-card',c).forEach(button=>button.onclick=()=>{const childId=$('#trainChild').value;if(!dbCanAccessChild(childId)){toast('当前账号未获得该儿童的数据授权');return;}openTrainer(childId,button.dataset.module,+button.dataset.difficulty||2);});
 };
-
 /** 将专业治理、家庭支持和系统安全入口追加到设置页。 */
 const baseRenderSetting=renderSetting;
 renderSetting=function(c){
@@ -167,24 +156,29 @@ renderSetting=function(c){
     parent:[['family','反馈日记','记录情绪、睡眠、配合度和特殊事件'],['homeTask','今日陪练','查看短时家庭任务、材料和陪练话术'],['reminder','训练提醒','设置训练频率、时段和复评提醒'],['assessmentObserve','评估观察','提交家庭观察，不修改专业量表'],['consent','知情同意','管理授权范围、导出和撤回']],
     admin:[['materials','素材库','图片、音频、视频和社交故事'],['contentReview','内容审核','上传、审核、发布和下架'],['versions','版本管理','内容版本、变更原因和回滚'],['calibration','难度与文化适配','难度校准、方言与城乡场景检查'],['org','机构与班级','组织、班级和授权边界'],['accounts','账号与授权','角色、状态和儿童绑定关系'],['audit','审计日志','登录、修改、审核和导出追溯'],['operations','脱敏运营看板','训练量、完成率和安全事件'],['remoteShare','远程授权共享','管理机构间授权范围和有效期'],['consent','知情同意','授权版本、范围和撤回记录'],['backupGovernance','备份与治理','恢复演练与备份状态']]
   };
-  // 康复师沿用数据备份/无障碍设置，并追加专业模块；其他账号只渲染自己的工作台。
   if(currentRole==='teacher')baseRenderSetting(c);else c.innerHTML='<div class="sec-title">'+ROLE_NAME[currentRole]+'工作台</div>';
   const extra=document.createElement('div');
-  const modules=currentRole==='teacher'?[['assessment','专业评估与复评','录入标准化评估并查看周期变化'],['sessionMode','机构/学校排程','一对一、小组及班级每日训练'],['goals','康复目标','基线、目标值、周期与达成度'],['review','AI方案与处方审核','接受、修改、拒绝与版本留痕'],['risk','医疗与训练风险','诊断禁忌、停止信号和线上暂停'],['family','家庭观察','查看家长反馈并辅助调整方案'],['homeSync','同步居家任务','向授权家长下发短时陪练任务'],['remoteReview','远程专业指导','在授权范围内复核基层数据'],['contentSuggest','内容专业建议','向复合管理员提交素材建议'],['auditLimited','受限审计','仅查看本人相关建档、审核与导出']]:roleModules[currentRole]||[];
-  extra.innerHTML=(currentRole==='teacher'?'<div class="sec-title">康复医疗专业模块</div>':'')+'<div class="ops-grid">'+modules.map(m=>'<button class="ops-card" data-panel="'+m[0]+'"><b>'+m[1]+'</b><small>'+m[2]+'</small></button>').join('')+'</div>'+
+  const modules=currentRole==='teacher'?[['assessment','专业评估与复评','录入量表来源、版本与换算依据'],['sessionMode','机构/学校排程','一对一、小组及班级每日训练'],['goals','康复目标','建立可观察的训练目标与周期'],['review','AI训练方案复核','复核、修改并通过实名会话签署'],['risk','医疗与训练风险','分级暂停并填写解除依据和随访计划'],['family','家庭观察','查看家长反馈并辅助调整方案'],['homeSync','同步居家任务','从已签署方案下发短时陪练任务'],['remoteReview','远程专业指导','在授权范围内复核基层资料'],['contentSuggest','内容专业建议','向复合管理员提交素材建议'],['auditLimited','本人操作记录','查看本人相关建档、签署与变更']]:roleModules[currentRole]||[];
+  extra.innerHTML=(currentRole==='teacher'?'<div class="sec-title">康复医疗专业工作模块</div>':'')+'<div class="ops-grid">'+modules.map(m=>'<button class="ops-card" data-panel="'+m[0]+'"><b>'+m[1]+'</b><small>'+m[2]+'</small></button>').join('')+'</div>'+
     '<div class="note">平台只提供训练建议，不作诊断或治疗结论。癫痫、自伤、攻击、严重情绪爆发、吞咽或跌倒风险应立即停止并联系专业人员。</div>';
   if(currentRole==='teacher')c.insertBefore(extra,c.lastElementChild);else{c.appendChild(extra);const logout=document.createElement('button');logout.className='btn-ghost';logout.id='roleLogout';logout.textContent='退出登录';c.appendChild(logout);logout.onclick=logoutToLogin;}
   $$('[data-panel]',extra).forEach(b=>b.onclick=()=>openEnhancedPanel(b.dataset.panel));
 };
 
-function logoutToLogin(){currentRole=null;lsSet('session',null);$('#main').classList.add('hidden');$('#tabbar').classList.add('hidden');$('#login').classList.remove('hidden');pickRole=null;$$('.role-card').forEach(x=>x.classList.remove('on'));$('#pinInput').value='';$('#pickedLine').textContent='请先选择上方身份';}
+async function logoutToLogin(){
+  await backendLogout();currentRole=null;lsSet('session',null);
+  $('#main').classList.add('hidden');$('#tabbar').classList.add('hidden');$('#login').classList.remove('hidden');
+  if($('#passwordInput'))$('#passwordInput').value='';if($('#loginErr'))$('#loginErr').textContent='';
+  if(typeof setAuthenticationMode==='function')setAuthenticationMode();
+}
 
 function openEnhancedPanel(type){
   const titles={goals:'康复目标',family:'家庭反馈日记',review:'专业方案审核',contentReview:'内容审核',consent:'知情同意',audit:'审计日志',org:'机构与班级',homeTask:'今日陪练',reminder:'训练提醒',assessment:'评估与周期复评',assessmentObserve:'家庭评估观察',risk:'风险标记',materials:'素材库',versions:'版本管理',calibration:'难度校准',accounts:'账号与授权',operations:'脱敏运营看板',sessionMode:'机构/学校排程',homeSync:'同步居家任务',contentSuggest:'内容建议',auditLimited:'受限审计',remoteReview:'远程指导',remoteShare:'远程授权共享',backupGovernance:'备份与治理'};
+  const activeConsent=(enhancedState.consents||[]).filter(x=>x.childId===activeChild&&x.status==='active').sort((a,b)=>(b.ts||0)-(a.ts||0))[0]||null;
   let body='';
   if(type==='audit')body=(enhancedState.auditLogs.length?enhancedState.auditLogs:'').slice(0,20).map(x=>'<div class="log-row"><b>'+esc(x.action)+'</b><small>'+new Date(x.ts).toLocaleString()+' · '+esc(x.role||'system')+'</small><p>'+esc(x.detail||'')+'</p></div>').join('')||'<div class="empty">暂无审计记录</div>';
   else if(type==='org')body=enhancedState.organizations.map(x=>'<div class="card"><b>'+esc(x.name)+'</b><p>班级：'+esc(x.classes.join('、'))+'</p></div>').join('');
-  else if(type==='consent')body='<div class="card"><b>授权状态：演示待确认</b><p>训练数据、评估数据、音视频采集应分别授权；监护人可撤回、导出或申请删除。</p><button class="btn-primary" id="recordConsent">记录本机演示同意</button></div>';
+  else if(type==='consent')body=currentRole!=='parent'?'<div class="card"><b>授权治理汇总</b><p>当前共有 '+enhancedState.consents.filter(x=>x.status==='active').length+' 条有效授权。机构管理员只查看脱敏数量，不能替代监护人授权。</p></div>':'<div class="card"><b>当前状态：'+(activeConsent?'已授权':'未授权')+'</b><p>请按用途分别选择。未勾选的范围不会被视为同意；撤回后不再用于新的处理活动。</p><div class="risk-checks"><label><input type="checkbox" data-consent-scope="training" '+(activeConsent?.scope?.includes('training')?'checked':'')+'>训练记录</label><label><input type="checkbox" data-consent-scope="assessment" '+(activeConsent?.scope?.includes('assessment')?'checked':'')+'>评估与家庭观察</label><label><input type="checkbox" data-consent-scope="media" '+(activeConsent?.scope?.includes('media')?'checked':'')+'>音视频采集（当前原型不采集）</label></div><button class="btn-primary" id="saveConsent">保存授权范围</button>'+(activeConsent?'<button class="btn-ghost danger" id="revokeConsent">撤回当前授权</button>':'')+'<button class="btn-ghost" id="exportMyData">导出当前儿童数据</button><button class="btn-ghost danger" id="requestDataDeletion">提交数据删除申请</button><div class="note">这是原型中的本地授权记录。正式服务还应提供身份核验、处理时限和申请进度。</div></div>';
   else if(type==='family')body='<div class="field"><label>今日状态</label><select id="familyMood"><option>状态平稳</option><option>睡眠不足</option><option>情绪波动</option><option>配合度较高</option></select></div><div class="field"><label>观察记录</label><textarea id="familyNote" placeholder="只记录训练相关的必要信息"></textarea></div><button class="btn-primary" id="saveFamily">保存日记</button>';
   else if(type==='goals')body='<div class="field"><label>目标描述</label><input id="goalText" placeholder="例：在少量提示下完成两步指令"></div><div class="field"><label>目标值（0-100）</label><input id="goalValue" type="number" min="0" max="100" value="70"></div><button class="btn-primary" id="saveGoal">新增目标</button>';
   else if(type==='homeTask')body='<div class="card"><b>今日任务：颜色与物品配对</b><p>准备3种常见物品，每次5分钟。话术：“请把一样的放在一起。”连续出现明显烦躁或回避时停止。</p></div>';
@@ -196,13 +190,16 @@ function openEnhancedPanel(type){
   else if(type==='contentReview')body='<div class="card"><b>内容审核队列</b><p>复合管理员可审核素材科学性、文化适配、难度和版权来源；不显示任何儿童档案或训练明细。</p><button class="btn-primary" id="approveContentDemo">记录内容审核通过</button></div>';
   else if(type==='sessionMode')body='<div class="card"><b>训练场景</b><p>机构：一对一/小组训练；学校：按班级安排每日任务。训练结束后进入报表与AI方案审核。</p></div>';
   else if(type==='homeSync')body='<div class="card"><b>家校同步</b><p>从已审核方案选择1–3个短时任务，下发给绑定家长；家长只查看被授权儿童。</p></div>';
-  else if(type==='auditLimited')body=enhancedState.auditLogs.filter(x=>x.role===currentRole).slice(0,10).map(x=>'<div class="log-row"><b>'+esc(x.action)+'</b><small>'+new Date(x.ts).toLocaleString()+'</small><p>'+esc(x.detail||'')+'</p></div>').join('')||'<div class="empty">暂无与本人相关的记录</div>';
+  else if(type==='auditLimited'){const userId=BACKEND_API.user?.userId;body=enhancedState.auditLogs.filter(x=>userId?x.actorUserId===userId:x.role===currentRole).slice(0,20).map(x=>'<div class="log-row"><b>'+esc(x.action)+'</b><small>'+new Date(x.ts).toLocaleString()+' · '+esc(x.actorName||ROLE_NAME[x.role]||x.role)+'</small><p>'+esc(x.detail||'')+'</p></div>').join('')||'<div class="empty">暂无与本人相关的记录</div>';}
   else if(type==='remoteReview'||type==='remoteShare')body='<div class="card"><b>'+titles[type]+'</b><p>远程访问必须基于儿童监护授权、机构关系、明确范围和有效期；每次查看与修改均写入审计日志。</p></div>';
   else if(type==='contentSuggest')body='<div class="card"><b>提交专业建议</b><p>康复医疗专业人员只能提出内容建议，不能直接审核发布；发布权属于内容与机构管理员。</p></div>';
   else if(['versions','calibration','accounts','operations','backupGovernance'].includes(type))body='<div class="card"><b>'+titles[type]+'</b><p>该模块已建立独立权限入口和审计边界；生产版需由服务端、数据库及真实组织数据提供完整能力。</p></div>';
   else body='<div class="card"><b>待审核队列</b><p>AI宏观方案、训练素材与安全规则变更必须人工审核并记录理由。</p><button class="btn-primary" id="approveDemo">记录一次审核通过</button></div>';
   $('#sheet').innerHTML='<h3>'+titles[type]+'<button class="x" id="closeEnhanced">×</button></h3>'+body;openMask();$('#closeEnhanced').onclick=closeMask;
-  if($('#recordConsent'))$('#recordConsent').onclick=()=>{enhancedState.consents.push({id:uid(),version:'1.0-demo',ts:Date.now(),scope:['training','assessment']});audit('CONSENT_RECORDED','记录演示知情同意');toast('已记录');closeMask();};
+  if($('#saveConsent'))$('#saveConsent').onclick=async()=>{const scope=$$('[data-consent-scope]:checked').map(x=>x.dataset.consentScope);if(!scope.length){toast('请至少选择一项授权范围');return;}const saved=await backendSaveConsent(activeChild,scope);if(BACKEND_API.available&&!saved){toast('机构服务保存失败，授权未更改');return;}(enhancedState.consents||[]).filter(x=>x.childId===activeChild&&x.status==='active').forEach(x=>{x.status='superseded';x.endedAt=Date.now();});enhancedState.consents.push({id:saved?.consentId||'consent_'+uid(),childId:activeChild,version:'1.0',status:'active',scope,confirmedBy:BACKEND_API.user?.userId||'parent',ts:Date.now()});audit('CONSENT_SCOPE_SAVED',scope.length+'项用途');toast('授权范围已保存');openEnhancedPanel('consent');};
+  if($('#revokeConsent'))$('#revokeConsent').onclick=()=>confirmBox('确认撤回当前授权？撤回后将停止新的数据处理和训练。',async()=>{const revoked=await backendRevokeConsent(activeChild);if(BACKEND_API.available&&!revoked){toast('机构服务撤回失败，授权保持有效');return;}activeConsent.status='revoked';activeConsent.revokedAt=Date.now();saveEnhanced();audit('CONSENT_REVOKED','已撤回');toast('当前授权已撤回');openEnhancedPanel('consent');});
+  if($('#exportMyData'))$('#exportMyData').onclick=()=>{if(!dbCanAccessChild(activeChild)){toast('当前账号未获得该儿童的数据授权');return;}const payload={exportedAt:new Date().toISOString(),child:children.find(x=>x.id===activeChild),trainingRecords:records.filter(x=>x.childId===activeChild),familyLogs:enhancedState.familyLogs.filter(x=>x.childId===activeChild),homeTaskCompletions:(enhancedState.homeTaskCompletions||[]).filter(x=>x.childId===activeChild),consents:enhancedState.consents.filter(x=>x.childId===activeChild)};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='我的儿童数据-'+todayStr()+'.json';a.click();URL.revokeObjectURL(a.href);audit('PARENT_DATA_EXPORTED',activeChild);};
+  if($('#requestDataDeletion'))$('#requestDataDeletion').onclick=()=>confirmBox('提交后将进入机构数据治理队列，不会立即删除数据。确认提交吗？',async()=>{const saved=await backendCreateDataRequest(activeChild,'deletion');if(BACKEND_API.available&&!saved){toast('机构服务提交失败，请重试');return;}enhancedState.dataRequests=enhancedState.dataRequests||[];enhancedState.dataRequests.push({id:saved?.requestId||'request_'+uid(),childId:activeChild,type:'deletion',status:'pending',requestedBy:BACKEND_API.user?.userId||'parent',ts:Date.now()});saveEnhanced();audit('DATA_DELETION_REQUESTED','已提交治理队列');toast('删除申请已提交');closeMask();});
   if($('#saveFamily'))$('#saveFamily').onclick=()=>{enhancedState.familyLogs.push({id:uid(),childId:activeChild,mood:$('#familyMood').value,note:$('#familyNote').value,ts:Date.now()});audit('FAMILY_LOG_CREATED',$('#familyMood').value);toast('日记已保存');closeMask();};
   if($('#saveGoal'))$('#saveGoal').onclick=()=>{enhancedState.goals.push({id:uid(),childId:activeChild,text:$('#goalText').value,target:clamp(+$('#goalValue').value,0,100),baseline:0,status:'active',ts:Date.now()});audit('GOAL_CREATED',$('#goalText').value);toast('目标已保存');closeMask();};
   if($('#approveDemo'))$('#approveDemo').onclick=()=>{enhancedState.reviews.push({id:uid(),type:'ai-plan',result:'approved',reviewer:currentRole,ts:Date.now()});audit('REVIEW_APPROVED','AI方案演示审核');toast('审核结果已留痕');closeMask();};
@@ -216,7 +213,7 @@ checkAcc=function(){
   // 儿童和内容审核角色不展示数据维护告警；他们既无备份权限，也不负责数据治理。
   if(currentRole==='child'){b.classList.add('hidden');return;}
   if(currentRole==='parent'){
-    b.classList.remove('hidden');b.innerHTML=svg('heart','#10B981',16)+' 已记录 '+records.filter(x=>x.childId===activeChild).length+' 条训练足迹，可在报表中查看孩子的进步。';return;
+    b.classList.remove('hidden');b.innerHTML=svg('heart','#10B981',16)+' 已记录 '+records.filter(x=>x.childId===activeChild&&x.source!=='baseline-game').length+' 条训练足迹，可在首页查看近期训练表现。';return;
   }
   if(records.length>=30&&(dbCan(DB_ACTIONS.BACKUP_LIMITED)||dbCan(DB_ACTIONS.BACKUP_FULL))){
     b.classList.remove('hidden');b.innerHTML=svg('clock','#E07B2E',16)+' 数据已积累 '+records.length+' 条，建议点右上角「备份」导出 JSON 防丢失。';return;
@@ -228,13 +225,13 @@ checkAcc=function(){
 const baseRenderReport=renderReport;
 renderReport=function(c){
   if(dbCan(DB_ACTIONS.PROGRESS_ANON)){
-    const totalSessions=records.length,correct=records.filter(x=>x.correct).length;
-    c.innerHTML='<div class="sec-title">脱敏运营看板</div><div class="stat-row"><div class="stat"><b>'+children.length+'</b><small>档案数量</small></div><div class="stat"><b>'+totalSessions+'</b><small>训练题次</small></div><div class="stat"><b>'+(totalSessions?Math.round(correct/totalSessions*100):0)+'%</b><small>总体正确率</small></div></div><div class="note">机构管理员仅查看脱敏汇总，不展示儿童姓名、诊断、逐题记录或AI专业方案。</div>';
+    const summary=BACKEND_API.anonymousSummary||{},totalSessions=summary.trainingRecords??records.filter(x=>x.source!=='baseline-game').length,childCount=summary.children??children.length;
+    c.innerHTML='<div class="sec-title">脱敏运营看板</div><div class="stat-row"><div class="stat"><b>'+childCount+'</b><small>档案数量</small></div><div class="stat"><b>'+totalSessions+'</b><small>训练题次</small></div></div><div class="note">机构管理员仅查看数据库脱敏计数，不展示儿童姓名、诊断、逐题记录、正确率或AI专业方案。</div>';
     return;
   }
   if(!dbCanAccessChild(activeChild)){c.innerHTML='<div class="empty">当前账号未获得该儿童的数据授权</div>';return;}
   if(dbCan(DB_ACTIONS.PROGRESS_SIMPLE)&&!dbCan(DB_ACTIONS.PROGRESS_AUTH)){
-    const recs=records.filter(x=>x.childId===activeChild),done=recs.length,stars=Math.min(5,Math.ceil(done/10));
+    const recs=records.filter(x=>x.childId===activeChild&&x.source!=='baseline-game'),done=recs.length,stars=Math.min(5,Math.ceil(done/10));
     c.innerHTML='<div class="sec-title">我的简单进度</div><div class="card child-progress-simple"><div class="reward-stars">'+('★'.repeat(stars)+ '☆'.repeat(5-stars))+'</div><b>已经完成 '+done+' 道训练题</b><p>继续按自己的节奏练习。答错没关系，系统会给提示并安排更合适的下一轮。</p></div>';
     return;
   }
@@ -242,7 +239,7 @@ renderReport=function(c){
   if(currentRole==='child'||currentRole==='parent'){
     const selector=$('#repChild');if(selector){$$('option',selector).forEach(option=>{if(option.value!==activeChild)option.remove();});selector.disabled=true;}
   }
-  const recs=records.filter(r=>r.childId===activeChild&&r.domain&&ABILITY_DOMAINS[r.domain]);
+  const recs=records.filter(r=>r.childId===activeChild&&r.source!=='baseline-game'&&r.domain&&ABILITY_DOMAINS[r.domain]);
   const card=document.createElement('div');card.className='card';
   card.innerHTML='<b>六域训练概览</b><p class="hint">首次正确率优先反映独立掌握；暂无记录显示为“—”。</p><div class="domain-metrics">'+
     Object.entries(ABILITY_DOMAINS).map(([key,d])=>{const list=recs.filter(r=>r.domain===key);const rate=list.length?Math.round(list.filter(r=>r.firstCorrect).length/list.length*100):null;return '<div><span style="color:'+d.color+'">'+key+'</span><b>'+(rate===null?'—':rate+'%')+'</b><small>'+d.name+' · '+list.length+'次</small></div>';}).join('')+'</div>';
@@ -257,9 +254,9 @@ renderAI=function(c){
   baseRenderAI(c);
   if(!(PERMS[currentRole].manage||PERMS[currentRole].review))return;
   const panel=document.createElement('div');panel.className='card';
-  panel.innerHTML='<b>专业审核</b><p class="hint">AI建议只能作为辅助。审核前请结合评估新鲜度、近期异常和儿童当日状态。</p><div class="review-actions"><button class="btn-primary" data-review-result="accepted">接受方案</button><button class="btn-ghost" data-review-result="modified">修改后采用</button><button class="btn-ghost danger" data-review-result="rejected">拒绝方案</button></div>';
+  panel.innerHTML='<b>训练方案复核</b><p class="hint">AI建议只能作为草稿。复核结果不会直接生效，必须由当前康复医疗专业人员通过实名服务端会话签署。</p><div class="review-actions"><button class="btn-primary" data-review-result="accepted">复核通过，待签署</button><button class="btn-ghost" data-review-result="modified">编辑方案草稿</button><button class="btn-ghost danger" data-review-result="rejected">退回重拟</button></div>';
   c.appendChild(panel);
-  $$('[data-review-result]',panel).forEach(b=>b.onclick=()=>{const result=b.dataset.reviewResult;enhancedState.reviews.push({id:uid(),childId:activeChild,planGeneratedAt:plans[activeChild]?.generatedAt,result,reviewer:currentRole,reason:result==='accepted'?'数据与目标一致':'需要人工调整',ts:Date.now()});audit('AI_PLAN_REVIEW',result);toast('审核结果已记录：'+({accepted:'接受',modified:'修改',rejected:'拒绝'}[result]));});
+  $$('[data-review-result]',panel).forEach(b=>b.onclick=()=>{const result=b.dataset.reviewResult;if(result==='modified'){toast('请编辑具体模块参数并保存草稿');openClinicalHub('plans');return;}enhancedState.reviews.push({id:uid(),childId:activeChild,planGeneratedAt:plans[activeChild]?.generatedAt,result,workflowStatus:result==='accepted'?'reviewed-awaiting-signature':'returned',reviewerRole:currentRole,reviewerUserId:BACKEND_API.user?.userId||null,reviewerName:BACKEND_API.user?.displayName||ROLE_NAME[currentRole],reason:result==='accepted'?'已完成人工复核，等待实名签署':'需要重新制定方案',ts:Date.now()});saveEnhanced();audit('AI_PLAN_REVIEW',result);toast(result==='accepted'?'已复核，仍需实名签署后生效':'已退回重新制定');});
 };
 
 /* ============ 可视化闭环演示：模拟作答 → AI分析 → 针对性再训练 ============ */
@@ -286,6 +283,7 @@ function simulateTrainingCycle(childId){
       completed:true,source:'simulation',ts:start+i*60000});
   }
   records=records.concat(simulated);
+  backendSaveTrainingRecords(simulated);
   plans[childId]=genPlan(childId);saveAll();
   const newPlan=plans[childId];
   const weakStep=newPlan.steps.find(x=>x.dim===weakLegacy);
@@ -317,7 +315,7 @@ renderArchive=function(c){
   const cards=$$('.child-card',c);
   children.forEach((child,index)=>{
     const card=cards[index];if(!card)return;
-    const childRecords=records.filter(r=>r.childId===child.id).sort((a,b)=>b.ts-a.ts);
+    const childRecords=records.filter(r=>r.childId===child.id&&r.source!=='baseline-game').sort((a,b)=>b.ts-a.ts);
     const recent=childRecords.slice(0,5);
     const area=document.createElement('div');area.className='child-history';
     area.innerHTML='<div class="history-head"><b>训练档案记录</b><span>累计 '+childRecords.length+' 题</span></div>'+

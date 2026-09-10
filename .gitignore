@@ -3,4 +3,5 @@ backend/*.db-shm
 backend/*.db-wal
 backend/__pycache__/
 backend/private_documents/
+backend/backups/
 backend/.document_key

@@ -13,18 +13,23 @@ if(invalidGames.length)throw new Error(`Games cannot be answered from visible in
 const gameCount=await page.evaluate(()=>BASELINE_GAMES.length);
 for(let index=0;index<gameCount;index++){
   await page.waitForFunction(i=>document.querySelector('.journey-top>span')?.textContent.trim().startsWith(String(i+1)),index);
-  const targetIndex=await page.evaluate(i=>BASELINE_GAMES[i].choices.indexOf(BASELINE_GAMES[i].target),index);
-  const choices=page.locator('#emojiChoices button');await choices.nth(targetIndex).waitFor({state:'visible',timeout:3500});await choices.nth(targetIndex).click();
+  const target=await page.evaluate(i=>BASELINE_GAMES[i].target,index);
+  const targetButton=page.locator('#emojiChoices button').filter({hasText:target}).first();await targetButton.waitFor({state:'visible',timeout:9000});await targetButton.click();
   await page.waitForSelector('#celebrationContinue');await page.click('#celebrationContinue');
 }
 await page.waitForSelector('.journey-finish',{timeout:5000});
-const result=await page.evaluate(()=>({assessmentCount:enhancedState.assessments.filter(x=>x.scaleCode===BASELINE_VERSION).length,profile:Object.keys(children[0].profile6||{}).length,baselineRecords:records.filter(x=>x.source==='baseline-game').length,dbProfiles:relationalDb.abilityProfiles.length,aiInferences:relationalDb.aiInferences.length,narrativeStatus:relationalDb.abilityProfiles.at(-1)?.narrativeStatus,evidence:relationalDb.abilityProfiles.at(-1)?.evidence?.length,confidence:relationalDb.abilityProfiles.at(-1)?.confidence}));
-if(result.assessmentCount!==1||result.profile!==6||result.baselineRecords!==gameCount||result.dbProfiles!==1||result.aiInferences!==1||result.narrativeStatus!=='completed'||result.evidence<1||result.confidence<=0)throw new Error(`Invalid baseline result: ${JSON.stringify(result)}`);
-await page.click('#journeyDone');await page.waitForSelector('.adventure-path');
-if(await page.locator('.level-node').count()!==22||await page.locator('.level-node.current').count()!==1||await page.locator('.level-node.locked').count()!==21)throw new Error('Initial adventure level states are invalid');
+const result=await page.evaluate(()=>({assessmentCount:enhancedState.assessments.filter(x=>x.scaleCode===BASELINE_VERSION).length,profile:Object.keys(children[0].profile6||{}).length,baselineRecords:records.filter(x=>x.source==='baseline-game').length,dbProfiles:relationalDb.abilityProfiles.length,aiInferences:relationalDb.aiInferences.length,narrativeStatus:relationalDb.abilityProfiles.at(-1)?.narrativeStatus,evidence:relationalDb.abilityProfiles.at(-1)?.evidence?.length,evidenceCoverage:relationalDb.abilityProfiles.at(-1)?.evidenceCoverage,confidence:relationalDb.abilityProfiles.at(-1)?.confidence}));
+if(result.assessmentCount!==1||result.profile!==6||result.baselineRecords!==gameCount||result.dbProfiles!==1||result.aiInferences!==1||result.narrativeStatus!=='completed'||result.evidence<1||!result.evidenceCoverage||result.confidence!==0)throw new Error(`Invalid baseline result: ${JSON.stringify(result)}`);
+await page.click('#journeyDone');await page.waitForSelector('.interest-daily-gateway');
+if(await page.locator('.adventure-path:visible').count())throw new Error('Training route was visible before the daily choice was completed');
+await page.click('#skipInterestChoice');
+await page.waitForSelector('.adventure-path');
+if(await page.locator('.level-node').count()!==22||await page.locator('.level-node[disabled]').count()!==21)throw new Error('Only the first adventure level should be unlocked initially');
+if(await page.locator('.level-node:not([disabled])').count()!==1)throw new Error('Initial adventure progression has more than one open level');
 await page.evaluate(()=>{const first=childAdventureOrder(getCurrentAbilityProfile(activeChild))[0];for(let i=0;i<3;i++)records.push({id:uid(),childId:activeChild,module:first.engine,moduleId:first.id,domain:first.domain,difficulty:1,correct:true,firstCorrect:true,promptLevel:0,reactionMs:900,completed:true,source:'test-level',ts:Date.now()+i});saveAll();showTab('train');});
 await page.waitForSelector('.level-node.passed');
-if(await page.locator('.level-node.current').count()!==1||await page.locator('.level-node.locked').count()!==20)throw new Error('Passing a level did not unlock exactly one next level');
+if(await page.locator('.level-node[disabled]').count()!==20)throw new Error('Passing one level did not unlock exactly the next level');
+if(await page.locator('.level-node.current:not([disabled])').count()!==1)throw new Error('The next adventure level is not the only current level');
 await page.click('[data-tab="report"]');await page.waitForSelector('.saved-profile-child[data-profile-id]');
 await page.click('.saved-profile-child .profile-detail-btn');await page.waitForSelector('.profile-meta');await page.click('#closeProfileDetail');
 await page.click('#globalLogout');await page.click('[data-role="child"]');await page.fill('#pinInput','1111');await page.click('#loginBtn');

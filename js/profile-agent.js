@@ -44,6 +44,7 @@ function openAgentQuestionTrainer(childId,moduleId,questions,onDone){
   }
   function finish(){
     records=records.concat(results);plans[childId]=genPlan(childId);saveAll();
+    backendSaveTrainingRecords(results);
     const correct=results.filter(item=>item.correct).length;
     body.innerHTML='<div class="train-summary"><div class="big" style="color:var(--green)">'+correct+' / '+results.length+'</div><h2>训练完成啦 🌈</h2><p>系统已经记录正确率、反应时间和提示使用情况，下一轮会继续调整。</p><button class="btn-primary" id="finishAgentTrain">完成并保存</button></div>';
     $('#finishAgentTrain').onclick=()=>{$('#trainMask').classList.add('hidden');toast('表现已记录，画像将随训练继续更新');if(onDone)onDone();};

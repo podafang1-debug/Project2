@@ -29,17 +29,20 @@ const BASELINE_GAMES=[
 function getBaselineRecord(childId){return enhancedState.assessments.find(x=>x.childId===childId&&x.scaleCode===BASELINE_VERSION&&x.status==='completed');}
 
 const identityEnterApp=enterApp;
+let baselineLaunchTimer=null;
 enterApp=function(){
   identityEnterApp();
   // 只有儿童本人首次进入时自动开始；家长和专业账号不触发儿童游戏界面。
-  if(currentRole==='child'&&activeChild&&!getBaselineRecord(activeChild))setTimeout(()=>startBaselineJourney(activeChild),120);
+  if(baselineLaunchTimer)clearTimeout(baselineLaunchTimer);
+  baselineLaunchTimer=null;
+  if(currentRole==='child'&&activeChild&&!getBaselineRecord(activeChild))baselineLaunchTimer=setTimeout(()=>{baselineLaunchTimer=null;if(currentRole==='child'&&activeChild&&!getBaselineRecord(activeChild))startBaselineJourney(activeChild);},120);
 };
 
 function startBaselineJourney(childId){
   if($('#baselineJourney'))return;
   const root=document.createElement('div');root.id='baselineJourney';root.className='baseline-journey';
   root.innerHTML='<div class="journey-card"><div class="journey-welcome"><div class="journey-mascot">🦊✨</div><span class="journey-kicker">第一次见面</span><h1>一起去彩虹岛玩游戏吧！</h1><p>这里没有考试，也不会扣分。不会的时候可以听一遍、看提示或休息一下。</p><div class="journey-rules"><span>🎮 '+BASELINE_GAMES.length+'个小游戏</span><span>💛 温和提示</span><span>⏸️ 随时休息</span></div><button class="journey-primary" id="journeyStart">开始探险 🚀</button><button class="journey-link" id="journeyPause">稍后再玩</button><small>结果仅用于安排训练起点，不是医学诊断或标准化量表分数。</small></div><div class="journey-play hidden" id="journeyPlay"></div></div>';
-  document.body.appendChild(root);$('#journeyStart').onclick=()=>runBaselineGames(root,childId);$('#journeyPause').onclick=()=>root.remove();
+  document.body.appendChild(root);$('#journeyStart').onclick=()=>runBaselineGames(root,childId);$('#journeyPause').onclick=()=>{if(baselineLaunchTimer)clearTimeout(baselineLaunchTimer);baselineLaunchTimer=null;root.remove();};
 }
 
 function runBaselineGames(root,childId){
@@ -108,21 +111,23 @@ function playBaselineAnswerSound(correct){
 }
 
 async function finishBaselineJourney(root,childId,answers){
-  const gameScores={};Object.keys(ABILITY_DOMAINS).forEach(domain=>{const list=answers.filter(x=>x.domain===domain);const accuracy=list.filter(x=>x.correct).length/list.length;const independence=1-Math.min(1,list.reduce((n,x)=>n+x.promptLevel,0)/(list.length*2));gameScores[domain]=Math.round(35+accuracy*50+independence*15);});
-  // 融合平台游戏、专业人员已录入的正式评估结论与近期家庭观察；没有外部数据时自动只采用游戏证据。
+  const gameScores={};Object.keys(ABILITY_DOMAINS).forEach(domain=>{const list=answers.filter(x=>x.domain===domain);gameScores[domain]=scoreBaselineDomainV2(list);});
+  // 只用平台游戏形成训练起点；正式评估与家庭观察作为独立证据层展示，不做固定权重混分。
   const integrated=buildIntegratedProfile(childId,gameScores,answers.length),scores=integrated.scores;
   const play=$('#journeyPlay',root);
   // 最后一题结束后立即进入画像生成状态，用温和动画承接等待，避免儿童误以为页面卡住。
   play.innerHTML='<div class="journey-generating"><div class="ai-orbit"><span>🤖</span><i>⭐</i><i>🌈</i><i>💛</i></div><h1>小助手正在整理你的游戏足迹</h1><p>每一次点击都很有用，很快就好啦……</p><div class="thinking-dots"><b></b><b></b><b></b></div></div>';
   const child=children.find(x=>x.id===childId);child.profile6=scores;child.baselineCompletedAt=new Date().toISOString();
-  // 把六域画像映射回旧三维字段，保证既有AI与报表可以立即使用。
+  // 旧三维字段仅作兼容显示；方案、训练难度和专业工作流均使用六领域画像。
   child.baseline.attention=Math.round(scores.A);child.baseline.memory=Math.round(scores.B);child.baseline.logic=Math.round((scores.C+scores.D+scores.E+scores.F)/4);
   const assessmentId='assess_'+uid(),profileId='profile_'+uid();
-  enhancedState.assessments.push({assessmentId,childId,scaleCode:BASELINE_VERSION,name:'平台原创游戏化训练起点评估',status:'completed',scores,answers,completedAt:Date.now(),disclaimer:'非标准化量表，不用于诊断'});
-  answers.forEach(x=>records.push({id:x.id,childId,module:ABILITY_DOMAINS[x.domain].legacy,moduleId:'BASE-'+x.domain,domain:x.domain,difficulty:1,correct:x.correct,firstCorrect:x.firstCorrect,promptLevel:x.promptLevel,reactionMs:x.responseTimeMs,errorType:x.correct?'':'baseline_support_needed',completed:true,source:'baseline-game',ts:x.ts}));
+  const baselineAssessment={assessmentId,childId,toolCode:BASELINE_VERSION,scaleCode:BASELINE_VERSION,name:'平台原创游戏化训练起点评估',status:'completed',domainScores:scores,scores,answers,assessedAt:Date.now(),completedAt:Date.now(),source:'platform',disclaimer:'非标准化量表，不用于诊断'};
+  enhancedState.assessments.push(baselineAssessment);
+  const baselineRecords=answers.map(x=>({id:x.id,childId,module:ABILITY_DOMAINS[x.domain].legacy,moduleId:'BASE-'+x.domain,domain:x.domain,difficulty:1,correct:x.correct,firstCorrect:x.firstCorrect,promptLevel:x.promptLevel,repeatCount:x.repeatCount||0,hintCount:x.hintCount||0,supportOutcome:x.supportOutcome||'independent',reactionMs:x.responseTimeMs,responseTimeContext:x.responseTimeContext||'unknown',errorType:x.correct?'':'baseline_support_needed',completed:(x.supportOutcome||'independent')!=='not-completed',source:'baseline-game',ts:x.ts}));
+  records=records.concat(baselineRecords);backendSaveTrainingRecords(baselineRecords);backendSaveAssessment(baselineAssessment);
   plans[childId]=genPlan(childId);saveAll();saveEnhanced();
   // 画像先以generating状态写库，确保即使AI叙述服务中断，六域分数也不会丢失。
-  const profile=dbSaveAbilityProfile({profileId,childId,assessmentId,version:BASELINE_VERSION,scores,gameScores,evidence:integrated.evidence,weights:integrated.weights,confidence:integrated.confidence,status:'current',narrativeStatus:'generating',createdAt:Date.now(),source:'integrated-assessment'});
+  const profile=dbSaveAbilityProfile({profileId,childId,assessmentId,version:BASELINE_VERSION,scores,gameScores,evidence:integrated.evidence,evidenceCoverage:integrated.evidenceCoverage,scoreMeaning:integrated.scoreMeaning,confidence:0,status:'current',narrativeStatus:'generating',createdAt:Date.now(),source:'platform-training-baseline'});
   const aiResult=await generateChildProfileNarrative(scores,integrated);
   profile.narrative=aiResult.text;profile.narrativeStatus='completed';profile.aiProvider=aiResult.provider;profile.aiModel=aiResult.model;profile.updatedAt=Date.now();
   const inference=dbSaveAiInference({inferenceId:'infer_'+uid(),profileId,childId,provider:aiResult.provider,model:aiResult.model,inputSummary:{scores},output:aiResult.text,safetyPolicy:'child-safe-v1',createdAt:Date.now()});saveDatabase();
@@ -130,7 +135,7 @@ async function finishBaselineJourney(root,childId,answers){
   const backendSaved=await backendSaveProfileBundle(profile,inference);
   audit('BASELINE_JOURNEY_COMPLETED',`${childId} · ${aiResult.provider}/${aiResult.model}`);
   const weak=Object.entries(scores).sort((a,b)=>a[1]-b[1])[0][0];
-  play.innerHTML='<div class="journey-finish"><div class="journey-mascot">🏝️🏆</div><h1>彩虹岛探险完成！</h1><p>你完成了所有小游戏，每一次尝试都很棒。</p><div class="profile-save-confirm">✅ 彩虹画像已经安全保存至'+(backendSaved?' SQLite 数据库':'浏览器本机数据库')+'</div><div class="profile-six">'+Object.entries(ABILITY_DOMAINS).map(([key,d])=>'<div><span>'+['👀','🧠','🧩','💬','😊','👐'][Object.keys(ABILITY_DOMAINS).indexOf(key)]+'</span><b>'+d.name+'</b><i><em style="width:'+scores[key]+'%;background:'+d.color+'"></em></i><small>训练起点 '+scores[key]+'</small></div>').join('')+'</div><div class="ai-child-message"><span>🤖</span><p>'+esc(aiResult.text)+'</p></div><div class="journey-next">下一站：先玩一些 <b>'+ABILITY_DOMAINS[weak].name+'</b> 的轻松游戏。以后每次训练，路线都会跟着你的节奏慢慢调整。</div><button class="journey-primary" id="journeyDone">进入我的训练地图 🎮</button><small>画像编号：'+esc(profileId)+' · 免费本地引擎：'+esc(aiResult.model)+'<br>这是一份平台训练画像，不代表智力、诊断或临床量表结果。</small></div>';
+  play.innerHTML='<div class="journey-finish"><div class="journey-mascot">🏝️🏆</div><h1>彩虹岛探险完成！</h1><p>你完成了所有小游戏，每一次尝试都很棒。</p><div class="profile-save-confirm">✅ 彩虹画像已经安全保存至'+(backendSaved?' SQLite 数据库':'浏览器本机数据库')+'</div><div class="profile-six">'+Object.entries(ABILITY_DOMAINS).map(([key,d])=>'<div><span>'+['👀','🧠','🧩','💬','😊','👐'][Object.keys(ABILITY_DOMAINS).indexOf(key)]+'</span><b>'+d.name+'</b><i><em style="width:'+scores[key]+'%;background:'+d.color+'"></em></i><small>训练起点 '+scores[key]+'</small></div>').join('')+'</div><div class="ai-child-message"><span>🤖</span><p>'+esc(aiResult.text)+'</p></div><div class="journey-next">专业人员审核训练方案后，会先安排一些 <b>'+ABILITY_DOMAINS[weak].name+'</b> 的轻松游戏；每次训练结果会帮助专业人员复核下一步。</div><button class="journey-primary" id="journeyDone">进入我的训练地图 🎮</button><small>画像编号：'+esc(profileId)+' · 免费本地引擎：'+esc(aiResult.model)+'<br>这是一份平台训练画像，不代表智力、诊断或临床量表结果。</small></div>';
   $('#journeyDone').onclick=()=>{root.remove();showTab('train');};
 }
 
@@ -152,7 +157,7 @@ function openAbilityProfileDetail(profileId){
   const profile=relationalDb.abilityProfiles.find(x=>x.profileId===profileId);if(!profile){toast('画像记录不存在');return;}
   const inference=relationalDb.aiInferences.find(x=>x.profileId===profileId);
   $('#sheet').innerHTML='<h3>初始画像详情<button class="x" id="closeProfileDetail">×</button></h3>'+abilityProfileCard(profile,currentRole==='child'?'child':'professional')+
-    '<div class="card profile-meta"><b>生成记录</b><p>画像版本：'+esc(profile.version)+'<br>数据来源：'+esc((profile.evidence||[]).map(x=>x.label).join('；')||BASELINE_GAMES.length+'个原创游戏任务')+'<br>融合置信度：'+Math.round((profile.confidence||.48)*100)+'%<br>叙述引擎：'+esc(inference?.model||profile.aiModel||'安全本地引擎')+'<br>保存位置：本机数据库 · abilityProfiles · '+esc(profile.profileId)+'<br>生成状态：已完成并保存 ✅</p></div>';
+    '<div class="card profile-meta"><b>生成记录</b><p>画像版本：'+esc(profile.version)+'<br>数据来源：'+esc((profile.evidence||[]).map(x=>x.label).join('；')||BASELINE_GAMES.length+'个原创游戏任务')+'<br>证据充分度：'+esc(profile.evidenceCoverage||'仅有平台训练数据')+'<br>分数含义：平台训练起点，不是临床量表分<br>叙述引擎：'+esc(inference?.model||profile.aiModel||'安全本地引擎')+'<br>保存位置：本机数据库 · abilityProfiles · '+esc(profile.profileId)+'<br>生成状态：已完成并保存 ✅</p></div>';
   openMask();$('#closeProfileDetail').onclick=closeMask;
 }
 

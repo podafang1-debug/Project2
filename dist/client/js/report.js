@@ -2,8 +2,8 @@
 function renderReport(c){
   if(!children.length){c.innerHTML='<div class="empty">请先在「档案」中建立儿童档案</div>';return;}
   const childId=activeChild;const child=children.find(x=>x.id===childId);
-  const recs=records.filter(r=>r.childId===childId);
-  let html='<div class="sec-title">'+svg("chart","#10B981",20)+'训练进度报表</div>';
+  const recs=records.filter(r=>r.childId===childId&&r.source!=='baseline-game');
+  let html='<div class="sec-title">'+svg("chart","#10B981",20)+'近期训练表现</div>';
   html+='<div class="field"><label>选择儿童</label><select id="repChild" style="height:50px;border:2px solid var(--line);border-radius:14px;padding:0 14px;width:100%;background:#fff">'+
     children.map(ch=>'<option value="'+ch.id+'"'+(ch.id===childId?" selected":"")+'>'+esc(ch.name)+'</option>').join("")+'</select></div>';
   if(!recs.length){html+='<div class="empty">该儿童暂无训练记录</div>';c.innerHTML=html;$("#repChild").onchange=e=>{activeChild=e.target.value;lsSet("activeChild",activeChild);renderReport(c);};return;}
@@ -11,22 +11,18 @@ function renderReport(c){
   const dims=["attention","memory","logic"];
   html+='<div class="stat-row">';
   dims.forEach(d=>{const dr=recs.filter(r=>r.module===d);const acc=dr.length?dr.filter(r=>r.correct).length/dr.length:0;
-    html+='<div class="stat"><b style="color:'+colorOf(d)+'">'+(dr.length?(acc*100).toFixed(0)+'%':'—')+'</b><small>'+({attention:"注意力",memory:"记忆力",logic:"逻辑力"}[d])+'正确率</small></div>';});
+    html+='<div class="stat"><b style="color:'+colorOf(d)+'">'+(dr.length?(acc*100).toFixed(0)+'%':'—')+'</b><small>'+({attention:"注意力",memory:"记忆力",logic:"逻辑力"}[d])+'训练正确率</small></div>';});
   html+='</div>';
-  // 雷达图：基线 vs 当前能力 + 成长增量
-  const curAcc={};
-  dims.forEach(d=>{const dr=recs.filter(r=>r.module===d);curAcc[d]=dr.length?dr.filter(r=>r.correct).length/dr.length*100:0;});
-  html+='<div class="card"><b>基线 vs 当前能力</b>'+radarChart(child.baseline,curAcc)+
-    '<div style="display:flex;justify-content:space-around;margin-top:6px;font-size:13px">'+dims.map(d=>{const g=Math.round(curAcc[d]-(child.baseline[d]||0));
-      return '<span>'+({attention:"注意力",memory:"记忆力",logic:"逻辑力"}[d])+'：<b style="color:'+(g>=0?"var(--green)":"var(--red)")+'">'+(g>=0?"+":"")+g+'</b></span>';}).join("")+'</div></div>';
+  // 训练正确率与标准化评估不属于同一测量，不能直接相减或解释为能力变化。
+  html+='<div class="card metric-boundary"><b>怎样理解这些数据</b><p>这里展示的是平台任务中的训练表现，只用于观察熟悉度和任务适配情况，不等同于能力评估、医学诊断或康复疗效。能力变化请以专业人员完成的周期复评为准。</p></div>';
   // 折线图：整体正确率随训练次数趋势（按时间分桶）
-  html+='<div class="card"><b>正确率趋势</b><div class="legend">'+
+  html+='<div class="card"><b>训练正确率走势</b><div class="legend">'+
     dims.map(d=>'<span><i style="background:'+colorOf(d)+'"></i>'+({attention:"注意力",memory:"记忆力",logic:"逻辑力"}[d])+'</span>').join("")+'</div>'+
     lineChart(recs)+'</div>';
   // 柱状图：各模块训练次数
-  html+='<div class="card"><b>各维度训练量</b>'+barChart(recs)+'</div>';
+  html+='<div class="card"><b>各类任务练习量</b>'+barChart(recs)+'</div>';
   // 最近记录
-  html+='<div class="card"><b>最近训练记录</b><div class="rec-list">';
+  html+='<div class="card"><b>最近完成的训练任务</b><div class="rec-list">';
   recs.slice().sort((a,b)=>b.ts-a.ts).slice(0,12).forEach(r=>{
     const modName={attention:"注意力",memory:"记忆力",logic:"逻辑力"}[r.module];
     html+='<div class="rec"><div class="mk '+(r.correct?"y":"n")+'">'+(r.correct?svg("check",null,16):svg("cross",null,16))+'</div>'+
@@ -78,23 +74,4 @@ function barChart(recs){
   });
   svgStr+='</svg>';
   return svgStr;
-}
-/* 雷达图：基线评估 vs 当前能力（手写 SVG，3 轴） */
-function radarChart(base,cur){
-  const dims=["attention","memory","logic"];
-  const labels=["注意力","记忆力","逻辑力"];
-  const cx=130,cy=120,R=86;
-  const ang=i=>-Math.PI/2+i*2*Math.PI/dims.length;
-  const pt=(v,i)=>{const a=ang(i);return [cx+R*(v/100)*Math.cos(a),cy+R*(v/100)*Math.sin(a)];};
-  const poly=arr=>arr.map((v,i)=>pt(v,i).map(n=>n.toFixed(1)).join(",")).join(" ");
-  let s='<svg viewBox="0 0 260 240" width="100%" style="display:block;max-width:300px;margin:4px auto 0">';
-  [0.33,0.66,1].forEach(f=>{const p=dims.map((_,i)=>{const a=ang(i);return (cx+R*f*Math.cos(a)).toFixed(1)+","+(cy+R*f*Math.sin(a)).toFixed(1);}).join(" ");s+='<polygon points="'+p+'" fill="none" stroke="#E5E9F2"/>';});
-  dims.forEach((_,i)=>{const a=ang(i);s+='<line x1="'+cx+'" y1="'+cy+'" x2="'+(cx+R*Math.cos(a)).toFixed(1)+'" y2="'+(cy+R*Math.sin(a)).toFixed(1)+'" stroke="#E5E9F2"/>';
-    const lx=cx+(R+18)*Math.cos(a),ly=cy+(R+18)*Math.sin(a);s+='<text x="'+lx.toFixed(1)+'" y="'+ly.toFixed(1)+'" font-size="11" fill="#6B7280" text-anchor="middle" dominant-baseline="middle">'+labels[i]+'</text>';});
-  s+='<polygon points="'+poly(dims.map(d=>base[d]||0))+'" fill="rgba(111,122,160,.18)" stroke="#9AA3B2" stroke-width="2"/>';
-  s+='<polygon points="'+poly(dims.map(d=>cur[d]||0))+'" fill="rgba(247,161,79,.28)" stroke="#F7A14F" stroke-width="2.5"/>';
-  dims.forEach((d,i)=>{const p=pt(cur[d]||0,i);s+='<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="3" fill="#F7A14F"/>';});
-  s+='</svg>';
-  s+='<div class="legend" style="justify-content:center"><span><i style="background:#9AA3B2"></i>基线评估</span><span><i style="background:#F7A14F"></i>当前水平</span></div>';
-  return s;
 }

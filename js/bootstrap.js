@@ -7,5 +7,15 @@ $("#btnImport").onclick=()=>$("#fileInput").click();
 
 /* ============ 启动 ============ */
 applyAccessibility();   // 进入前先套用无障碍偏好
-if(currentRole&&accounts[currentRole]){enterApp();}
-else{$("#login").classList.remove("hidden");}
+async function startApplication(){
+  await backendReady;
+  if(BACKEND_API.available){
+    if(BACKEND_API.token){
+      try{await hydrateFromBackend();currentRole=BACKEND_API.user?.role||null;lsSet("session",currentRole);}
+      catch(_error){BACKEND_API.token='';sessionStorage.removeItem(BACKEND_TOKEN_KEY);currentRole=null;lsSet("session",null);}
+    }else{currentRole=null;lsSet("session",null);}
+  }
+  if(currentRole&&BACKEND_API.user)enterApp();
+  else $("#login").classList.remove("hidden");
+}
+startApplication();

@@ -39,6 +39,7 @@ function openTrainer(childId,module,difficulty,onDone){
     // 增强版同时保存“底层交互类型”和“专业模块 ID”，兼容旧报表并支持六域统计。
     recs.forEach(r=>{r.moduleId=window.__activeTrainingModuleId||module;r.domain=window.__activeTrainingDomain||module;r.firstCorrect=r.correct;r.promptLevel=r.correct?0:1;r.completed=true;});
     records=records.concat(recs);
+    backendSaveTrainingRecords(recs);
     plans[childId]=genPlan(childId);
     saveAll();
     const ok=recs.filter(r=>r.correct).length, tot=recs.length;

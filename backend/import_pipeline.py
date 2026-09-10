@@ -5,6 +5,8 @@ import hashlib
 import json
 import re
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import threading
 import uuid
@@ -151,7 +153,8 @@ def process_batch(database_file: Path, batch_id: str, connect: Callable[[], sqli
     try:
         with connect() as db:
             db.execute("UPDATE import_batches SET status='processing',updated_at=? WHERE batch_id=?", (now(), batch_id))
-            documents = db.execute("SELECT * FROM source_documents WHERE batch_id=? AND status='queued'", (batch_id,)).fetchall()
+            # processing 也纳入查询：服务或电脑意外退出后，可以从已保存页继续。
+            documents = db.execute("SELECT * FROM source_documents WHERE batch_id=? AND status IN ('queued','processing')", (batch_id,)).fetchall()
         ocr = LocalOCR()
         for document in documents:
             encrypted_path = BASE_DIR / document["encrypted_path"]
@@ -163,6 +166,13 @@ def process_batch(database_file: Path, batch_id: str, connect: Callable[[], sqli
                     db.execute("UPDATE source_documents SET page_count=?,status='processing' WHERE document_id=?", (len(pdf), document["document_id"]))
                 for index, page in enumerate(pdf):
                     page_no = index + 1
+                    with connect() as db:
+                        finished = db.execute(
+                            "SELECT 1 FROM document_pages WHERE document_id=? AND page_number=?",
+                            (document["document_id"], page_no),
+                        ).fetchone()
+                    if finished:
+                        continue
                     text, confidence, orientation = ocr.read_page(page)
                     with connect() as db:
                         db.execute("INSERT OR REPLACE INTO document_pages(page_id,document_id,page_number,page_type,orientation,ocr_confidence,encrypted_ocr,created_at) VALUES(?,?,?,?,?,?,?,?)",
@@ -183,5 +193,38 @@ def process_batch(database_file: Path, batch_id: str, connect: Callable[[], sqli
             db.execute("UPDATE import_batches SET status='failed',error_message=?,updated_at=? WHERE batch_id=?", (str(error)[:500], now(), batch_id))
 
 
-def start_batch_thread(database_file: Path, batch_id: str, connect: Callable[[], sqlite3.Connection]) -> None:
-    threading.Thread(target=process_batch, args=(database_file, batch_id, connect), daemon=True, name=f"import-{batch_id}").start()
+def start_batch_process(database_file: Path, batch_id: str, connect: Callable[[], sqlite3.Connection]) -> None:
+    """在独立进程运行 OCR。
+
+    ONNX/OpenCV 属于原生组件；极端图片触发原生异常时，独立进程可保证网页服务
+    继续运行。监控线程只等待子进程并记录退出状态，不参与识别。
+    """
+    log_dir = BASE_DIR / "ocr_logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{batch_id}.log"
+    command = [sys.executable, str(BASE_DIR / "ocr_worker.py"), "--database", str(database_file), "--batch", batch_id]
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    with log_path.open("ab") as log_file:
+        worker = subprocess.Popen(
+            command,
+            cwd=str(BASE_DIR.parent),
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            creationflags=creationflags,
+        )
+
+    def monitor() -> None:
+        return_code = worker.wait()
+        if return_code == 0:
+            return
+        with connect() as db:
+            db.execute(
+                "UPDATE import_batches SET status='failed',error_message=?,updated_at=? WHERE batch_id=? AND status IN ('queued','processing')",
+                (f"离线识别进程异常退出（代码 {return_code}），可点击重试从已完成页继续", now(), batch_id),
+            )
+
+    threading.Thread(target=monitor, daemon=True, name=f"ocr-monitor-{batch_id}").start()
+
+
+# 兼容已有调用；新实现不再把 OCR 放进网站服务进程。
+start_batch_thread = start_batch_process

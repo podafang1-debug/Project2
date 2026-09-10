@@ -3,16 +3,14 @@ let children=lsGet("children",null);
 let records=lsGet("records",null);
 let plans=lsGet("plans",{});
 let tasks=lsGet("tasks",null);
-let accounts=lsGet("accounts",null);
+let accounts={};
 let settings=lsGet("settings",null);
 let currentRole=lsGet("session",null);
 let activeChild=lsGet("activeChild",null);
 
-if(!accounts)accounts={teacher:{pin:"1234"},parent:{pin:"1234"},admin:{pin:"8888"}};
-// 六角色旧版本无损迁移为四角色：医疗并入专业人员，内容审核并入复合管理员。
-if(currentRole==='doctor')currentRole='teacher';
-if(currentRole==='reviewer')currentRole='admin';
-delete accounts.doctor;delete accounts.reviewer;lsSet('accounts',accounts);lsSet('session',currentRole);
+// 正式身份只由服务端会话确定；清除旧版本保存在浏览器里的示例账号与角色会话。
+localStorage.removeItem('accounts');
+currentRole=null;lsSet('session',null);
 if(!settings)settings={sample:true};
 // 无障碍偏好默认值（仅本机）
 settings=Object.assign({sample:true,hc:false,large:false,audio:true,speechRate:.82,volume:.3,reducedMotion:false},settings);

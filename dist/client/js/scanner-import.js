@@ -9,17 +9,7 @@ renderSetting=function(container){
     card.innerHTML='<div class="scan-entry-head"><span>📚🔒</span><div><b>历史扫描档案导入</b><p>离线识别PDF，逐字段复核后写入档案与初始画像。</p></div></div><button class="btn-primary" id="openScanImport">打开批量导入工作台</button><div class="note">原件与OCR全文均在本机加密保存。诊断、风险和评估信息不会自动生效，必须由专业人员确认。</div>';
     const logout=$('#logout',container);container.insertBefore(card,logout);$('#openScanImport').onclick=openScanImport;
   }
-  if(currentRole==='admin'){
-    const card=document.createElement('section');card.className='card';card.innerHTML='<b>扫描导入运行状态</b><p class="hint">管理员只能查看脱敏批次数量与运行状态，不能查看文件名、儿童身份或临床字段。</p><div id="adminImportSummary" class="scan-summary">正在读取本地服务…</div>';
-    container.insertBefore(card,$('#logout',container));loadAdminImportSummary();
-  }
 };
-
-async function loadAdminImportSummary(){
-  const box=$('#adminImportSummary');if(!box)return;
-  try{const data=await backendRequest('/api/imports/batches');const counts={};(data?.batches||[]).forEach(x=>counts[x.status]=(counts[x.status]||0)+1);box.innerHTML='<b>'+(data?.batches?.length||0)+'</b> 个批次 · '+Object.entries(counts).map(([k,v])=>v+' 个'+(scanStatusName[k]||k)).join(' · ');}
-  catch(error){box.textContent=BACKEND_API.available?'状态读取失败：'+error.message:'请先通过 Python 本地服务启动平台。';}
-}
 
 function openScanImport(){
   $('#sheet').classList.add('scan-workbench');

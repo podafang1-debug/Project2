@@ -1,7 +1,7 @@
 /* ============ 权限 ============ */
 const PERMS={
-  teacher:{manage:true,train:true,viewReport:true,viewAI:true,settings:true,accounts:false},
+  teacher:{manage:true,train:true,viewReport:true,viewAI:true,settings:true,accounts:true,org:true,audit:true,content:true},
   parent :{manage:false,train:true,viewReport:true,viewAI:true,settings:false,accounts:false},
-  admin  :{manage:false,train:false,viewReport:true,viewAI:false,settings:true,accounts:true}
+  child  :{manage:false,train:true,viewReport:true,viewAI:false,settings:false,accounts:false}
 };
-const ROLE_NAME={teacher:"康复医疗专业人员",parent:"家长",admin:"内容与机构管理员"};
+const ROLE_NAME={teacher:"康复专业人员",parent:"家长",child:"儿童"};

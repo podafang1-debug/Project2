@@ -30,16 +30,15 @@ const TRAINING_CATALOG=[
 // 前端权限只负责界面裁剪；正式授权由服务端数据库角色权限表决定。
 Object.assign(PERMS,{
   child:{manage:false,train:true,viewReport:true,viewAI:false,settings:false,accounts:false},
-  admin:{...PERMS.admin,viewAI:false,org:true,audit:true,content:true}
+  teacher:{...PERMS.teacher,viewAI:true,org:true,audit:true,content:true,accounts:true}
 });
-Object.assign(ROLE_NAME,{child:"儿童",teacher:"康复医疗专业人员",admin:"内容与机构管理员"});
+Object.assign(ROLE_NAME,{child:"儿童",parent:"家长",teacher:"康复专业人员"});
 
 /** 每种身份拥有稳定的颜色和图形；登录页、选中态和系统顶栏共用同一份配置。 */
 const ROLE_VISUALS={
   child:{color:'#F59E0B',soft:'#FFF7E6',icon:'star',label:'儿童'},
   parent:{color:'#10B981',soft:'#EAFBF4',icon:'heart',label:'家长'},
-  teacher:{color:'#4F86F7',soft:'#EEF4FF',icon:'plus',label:'康复医疗专业人员'},
-  admin:{color:'#8B5CF6',soft:'#F4F0FF',icon:'shield',label:'内容与机构管理员'}
+  teacher:{color:'#4F86F7',soft:'#EEF4FF',icon:'plus',label:'康复专业人员'}
 };
 
 /** 初始化增强版数据仓。全部使用独立键，避免破坏旧版备份。 */
@@ -56,10 +55,9 @@ function audit(action,detail){const user=typeof BACKEND_API!=='undefined'?BACKEN
  * 正式版还必须由服务端再次鉴权，不能只依赖前端隐藏按钮。
  */
 const ROLE_TABS={
-  child:['train','report'],parent:['train','report','setting'],teacher:['archive','train','ai','report','setting'],
-  admin:['report','setting']
+  child:['train','report'],parent:['train','report','setting'],teacher:['archive','train','ai','report','setting']
 };
-const ROLE_HOME={child:'train',parent:'report',teacher:'archive',admin:'setting'};
+const ROLE_HOME={child:'train',parent:'report',teacher:'archive'};
 function dbCanOpenTab(tab){
   if(tab==='train')return dbCan(DB_ACTIONS.TRAIN);
   if(tab==='archive')return dbCan(DB_ACTIONS.PROFILE_EDIT)||dbCan(DB_ACTIONS.PROFILE_MANAGE);
@@ -152,14 +150,11 @@ renderTrain=function(c){
 /** 将专业治理、家庭支持和系统安全入口追加到设置页。 */
 const baseRenderSetting=renderSetting;
 renderSetting=function(c){
-  const roleModules={
-    parent:[['family','反馈日记','记录情绪、睡眠、配合度和特殊事件'],['homeTask','今日陪练','查看短时家庭任务、材料和陪练话术'],['reminder','训练提醒','设置训练频率、时段和复评提醒'],['assessmentObserve','评估观察','提交家庭观察，不修改专业量表'],['consent','知情同意','管理授权范围、导出和撤回']],
-    admin:[['materials','素材库','图片、音频、视频和社交故事'],['contentReview','内容审核','上传、审核、发布和下架'],['versions','版本管理','内容版本、变更原因和回滚'],['calibration','难度与文化适配','难度校准、方言与城乡场景检查'],['org','机构与班级','组织、班级和授权边界'],['accounts','账号与授权','角色、状态和儿童绑定关系'],['audit','审计日志','登录、修改、审核和导出追溯'],['operations','脱敏运营看板','训练量、完成率和安全事件'],['remoteShare','远程授权共享','管理机构间授权范围和有效期'],['consent','知情同意','授权版本、范围和撤回记录'],['backupGovernance','备份与治理','恢复演练与备份状态']]
-  };
+  const roleModules={parent:[['family','反馈日记','记录情绪、睡眠、配合度和特殊事件'],['homeTask','今日陪练','查看短时家庭任务、材料和陪练话术'],['reminder','训练提醒','设置训练频率、时段和复评提醒'],['assessmentObserve','评估观察','提交家庭观察，不修改专业量表'],['consent','知情同意','管理授权范围、导出和撤回']]};
   if(currentRole==='teacher')baseRenderSetting(c);else c.innerHTML='<div class="sec-title">'+ROLE_NAME[currentRole]+'工作台</div>';
   const extra=document.createElement('div');
-  const modules=currentRole==='teacher'?[['assessment','专业评估与复评','录入量表来源、版本与换算依据'],['sessionMode','机构/学校排程','一对一、小组及班级每日训练'],['goals','康复目标','建立可观察的训练目标与周期'],['review','AI训练方案复核','复核、修改并通过实名会话签署'],['risk','医疗与训练风险','分级暂停并填写解除依据和随访计划'],['family','家庭观察','查看家长反馈并辅助调整方案'],['homeSync','同步居家任务','从已签署方案下发短时陪练任务'],['remoteReview','远程专业指导','在授权范围内复核基层资料'],['contentSuggest','内容专业建议','向复合管理员提交素材建议'],['auditLimited','本人操作记录','查看本人相关建档、签署与变更']]:roleModules[currentRole]||[];
-  extra.innerHTML=(currentRole==='teacher'?'<div class="sec-title">康复医疗专业工作模块</div>':'')+'<div class="ops-grid">'+modules.map(m=>'<button class="ops-card" data-panel="'+m[0]+'"><b>'+m[1]+'</b><small>'+m[2]+'</small></button>').join('')+'</div>'+
+  const modules=currentRole==='teacher'?[['patients','我的患者','选择需要跟进的家长儿童账号'],['assessment','专业评估与复评','录入量表来源、版本与换算依据'],['sessionMode','机构/学校排程','一对一、小组及班级每日训练'],['goals','康复目标','建立可观察的训练目标与周期'],['review','AI训练方案复核','复核、修改并通过实名会话签署'],['risk','医疗与训练风险','分级暂停并填写解除依据和随访计划'],['family','家庭观察','查看家长反馈并辅助调整方案'],['homeSync','同步居家任务','从已签署方案下发短时陪练任务'],['remoteReview','远程专业指导','在授权范围内复核基层资料'],['contentSuggest','内容专业建议','提交并管理训练内容建议'],['auditLimited','本人操作记录','查看本人相关建档、签署与变更'],['materials','素材库','图片、音频、视频和社交故事'],['contentReview','内容审核','上传、审核、发布和下架'],['versions','版本管理','内容版本、变更原因和回滚'],['calibration','难度与文化适配','难度校准、方言与城乡场景检查'],['org','机构与班级','组织、班级和授权边界'],['accounts','账号与授权','审核专业账号、状态和儿童绑定关系'],['audit','审计日志','登录、修改、审核和导出追溯'],['operations','脱敏运营看板','训练量、完成率和安全事件'],['remoteShare','远程授权共享','管理机构间授权范围和有效期'],['consent','知情同意','授权版本、范围和撤回记录'],['backupGovernance','备份与治理','恢复演练与备份状态']]:roleModules[currentRole]||[];
+  extra.innerHTML=(currentRole==='teacher'?'<div class="sec-title">康复专业工作模块</div>':'')+'<div class="ops-grid">'+modules.map(m=>'<button class="ops-card" data-panel="'+m[0]+'"><b>'+m[1]+'</b><small>'+m[2]+'</small></button>').join('')+'</div>'+
     '<div class="note">平台只提供训练建议，不作诊断或治疗结论。癫痫、自伤、攻击、严重情绪爆发、吞咽或跌倒风险应立即停止并联系专业人员。</div>';
   if(currentRole==='teacher')c.insertBefore(extra,c.lastElementChild);else{c.appendChild(extra);const logout=document.createElement('button');logout.className='btn-ghost';logout.id='roleLogout';logout.textContent='退出登录';c.appendChild(logout);logout.onclick=logoutToLogin;}
   $$('[data-panel]',extra).forEach(b=>b.onclick=()=>openEnhancedPanel(b.dataset.panel));
@@ -173,12 +168,12 @@ async function logoutToLogin(){
 }
 
 function openEnhancedPanel(type){
-  const titles={goals:'康复目标',family:'家庭反馈日记',review:'专业方案审核',contentReview:'内容审核',consent:'知情同意',audit:'审计日志',org:'机构与班级',homeTask:'今日陪练',reminder:'训练提醒',assessment:'评估与周期复评',assessmentObserve:'家庭评估观察',risk:'风险标记',materials:'素材库',versions:'版本管理',calibration:'难度校准',accounts:'账号与授权',operations:'脱敏运营看板',sessionMode:'机构/学校排程',homeSync:'同步居家任务',contentSuggest:'内容建议',auditLimited:'受限审计',remoteReview:'远程指导',remoteShare:'远程授权共享',backupGovernance:'备份与治理'};
+  const titles={patients:'我的患者',goals:'康复目标',family:'家庭反馈日记',review:'专业方案审核',contentReview:'内容审核',consent:'知情同意',audit:'审计日志',org:'机构与班级',homeTask:'今日陪练',reminder:'训练提醒',assessment:'评估与周期复评',assessmentObserve:'家庭评估观察',risk:'风险标记',materials:'素材库',versions:'版本管理',calibration:'难度校准',accounts:'账号与授权',operations:'脱敏运营看板',sessionMode:'机构/学校排程',homeSync:'同步居家任务',contentSuggest:'内容建议',auditLimited:'受限审计',remoteReview:'远程指导',remoteShare:'远程授权共享',backupGovernance:'备份与治理'};
   const activeConsent=(enhancedState.consents||[]).filter(x=>x.childId===activeChild&&x.status==='active').sort((a,b)=>(b.ts||0)-(a.ts||0))[0]||null;
   let body='';
   if(type==='audit')body=(enhancedState.auditLogs.length?enhancedState.auditLogs:'').slice(0,20).map(x=>'<div class="log-row"><b>'+esc(x.action)+'</b><small>'+new Date(x.ts).toLocaleString()+' · '+esc(x.role||'system')+'</small><p>'+esc(x.detail||'')+'</p></div>').join('')||'<div class="empty">暂无审计记录</div>';
   else if(type==='org')body=enhancedState.organizations.map(x=>'<div class="card"><b>'+esc(x.name)+'</b><p>班级：'+esc(x.classes.join('、'))+'</p></div>').join('');
-  else if(type==='consent')body=currentRole!=='parent'?'<div class="card"><b>授权治理汇总</b><p>当前共有 '+enhancedState.consents.filter(x=>x.status==='active').length+' 条有效授权。机构管理员只查看脱敏数量，不能替代监护人授权。</p></div>':'<div class="card"><b>当前状态：'+(activeConsent?'已授权':'未授权')+'</b><p>请按用途分别选择。未勾选的范围不会被视为同意；撤回后不再用于新的处理活动。</p><div class="risk-checks"><label><input type="checkbox" data-consent-scope="training" '+(activeConsent?.scope?.includes('training')?'checked':'')+'>训练记录</label><label><input type="checkbox" data-consent-scope="assessment" '+(activeConsent?.scope?.includes('assessment')?'checked':'')+'>评估与家庭观察</label><label><input type="checkbox" data-consent-scope="media" '+(activeConsent?.scope?.includes('media')?'checked':'')+'>音视频采集（当前原型不采集）</label></div><button class="btn-primary" id="saveConsent">保存授权范围</button>'+(activeConsent?'<button class="btn-ghost danger" id="revokeConsent">撤回当前授权</button>':'')+'<button class="btn-ghost" id="exportMyData">导出当前儿童数据</button><button class="btn-ghost danger" id="requestDataDeletion">提交数据删除申请</button><div class="note">这是原型中的本地授权记录。正式服务还应提供身份核验、处理时限和申请进度。</div></div>';
+  else if(type==='consent')body=currentRole!=='parent'?'<div class="card"><b>授权治理汇总</b><p>当前共有 '+enhancedState.consents.filter(x=>x.status==='active').length+' 条有效授权。康复专业人员只能在授权范围内处理数据，不能替代监护人授权。</p></div>':'<div class="card"><b>当前状态：'+(activeConsent?'已授权':'未授权')+'</b><p>请按用途分别选择。未勾选的范围不会被视为同意；撤回后不再用于新的处理活动。</p><div class="risk-checks"><label><input type="checkbox" data-consent-scope="training" '+(activeConsent?.scope?.includes('training')?'checked':'')+'>训练记录</label><label><input type="checkbox" data-consent-scope="assessment" '+(activeConsent?.scope?.includes('assessment')?'checked':'')+'>评估与家庭观察</label><label><input type="checkbox" data-consent-scope="media" '+(activeConsent?.scope?.includes('media')?'checked':'')+'>音视频采集（当前原型不采集）</label></div><button class="btn-primary" id="saveConsent">保存授权范围</button>'+(activeConsent?'<button class="btn-ghost danger" id="revokeConsent">撤回当前授权</button>':'')+'<button class="btn-ghost" id="exportMyData">导出当前儿童数据</button><button class="btn-ghost danger" id="requestDataDeletion">提交数据删除申请</button><div class="note">这是原型中的本地授权记录。正式服务还应提供身份核验、处理时限和申请进度。</div></div>';
   else if(type==='family')body='<div class="field"><label>今日状态</label><select id="familyMood"><option>状态平稳</option><option>睡眠不足</option><option>情绪波动</option><option>配合度较高</option></select></div><div class="field"><label>观察记录</label><textarea id="familyNote" placeholder="只记录训练相关的必要信息"></textarea></div><button class="btn-primary" id="saveFamily">保存日记</button>';
   else if(type==='goals')body='<div class="field"><label>目标描述</label><input id="goalText" placeholder="例：在少量提示下完成两步指令"></div><div class="field"><label>目标值（0-100）</label><input id="goalValue" type="number" min="0" max="100" value="70"></div><button class="btn-primary" id="saveGoal">新增目标</button>';
   else if(type==='homeTask')body='<div class="card"><b>今日任务：颜色与物品配对</b><p>准备3种常见物品，每次5分钟。话术：“请把一样的放在一起。”连续出现明显烦躁或回避时停止。</p></div>';
@@ -187,12 +182,12 @@ function openEnhancedPanel(type){
   else if(type==='assessmentObserve')body='<div class="card"><b>家庭观察权限</b><p>家长可提交生活场景观察，不能修改专业量表得分或诊断信息。</p></div>';
   else if(type==='risk')body='<div class="card"><b>专业风险提示</b><p>可记录癫痫、自伤、攻击、情绪爆发、吞咽和跌倒风险。风险标记优先于任何AI自动升级。</p></div>';
   else if(type==='materials')body=TRAINING_CATALOG.slice(0,8).map(x=>'<div class="log-row"><b>'+x.id+' '+x.name+'</b><small>'+ABILITY_DOMAINS[x.domain].name+' · 已发布 · v1.0</small><p>'+x.goal+'</p></div>').join('');
-  else if(type==='contentReview')body='<div class="card"><b>内容审核队列</b><p>复合管理员可审核素材科学性、文化适配、难度和版权来源；不显示任何儿童档案或训练明细。</p><button class="btn-primary" id="approveContentDemo">记录内容审核通过</button></div>';
+  else if(type==='contentReview')body='<div class="card"><b>内容审核队列</b><p>康复专业人员可审核素材科学性、文化适配、难度和版权来源。</p><button class="btn-primary" id="approveContentDemo">记录内容审核通过</button></div>';
   else if(type==='sessionMode')body='<div class="card"><b>训练场景</b><p>机构：一对一/小组训练；学校：按班级安排每日任务。训练结束后进入报表与AI方案审核。</p></div>';
   else if(type==='homeSync')body='<div class="card"><b>家校同步</b><p>从已审核方案选择1–3个短时任务，下发给绑定家长；家长只查看被授权儿童。</p></div>';
   else if(type==='auditLimited'){const userId=BACKEND_API.user?.userId;body=enhancedState.auditLogs.filter(x=>userId?x.actorUserId===userId:x.role===currentRole).slice(0,20).map(x=>'<div class="log-row"><b>'+esc(x.action)+'</b><small>'+new Date(x.ts).toLocaleString()+' · '+esc(x.actorName||ROLE_NAME[x.role]||x.role)+'</small><p>'+esc(x.detail||'')+'</p></div>').join('')||'<div class="empty">暂无与本人相关的记录</div>';}
   else if(type==='remoteReview'||type==='remoteShare')body='<div class="card"><b>'+titles[type]+'</b><p>远程访问必须基于儿童监护授权、机构关系、明确范围和有效期；每次查看与修改均写入审计日志。</p></div>';
-  else if(type==='contentSuggest')body='<div class="card"><b>提交专业建议</b><p>康复医疗专业人员只能提出内容建议，不能直接审核发布；发布权属于内容与机构管理员。</p></div>';
+  else if(type==='contentSuggest')body='<div class="card"><b>提交专业建议</b><p>康复专业人员可以提交建议，并在审核通过后发布训练内容。</p></div>';
   else if(['versions','calibration','accounts','operations','backupGovernance'].includes(type))body='<div class="card"><b>'+titles[type]+'</b><p>该模块已建立独立权限入口和审计边界；生产版需由服务端、数据库及真实组织数据提供完整能力。</p></div>';
   else body='<div class="card"><b>待审核队列</b><p>AI宏观方案、训练素材与安全规则变更必须人工审核并记录理由。</p><button class="btn-primary" id="approveDemo">记录一次审核通过</button></div>';
   $('#sheet').innerHTML='<h3>'+titles[type]+'<button class="x" id="closeEnhanced">×</button></h3>'+body;openMask();$('#closeEnhanced').onclick=closeMask;
@@ -226,7 +221,7 @@ const baseRenderReport=renderReport;
 renderReport=function(c){
   if(dbCan(DB_ACTIONS.PROGRESS_ANON)){
     const summary=BACKEND_API.anonymousSummary||{},totalSessions=summary.trainingRecords??records.filter(x=>x.source!=='baseline-game').length,childCount=summary.children??children.length;
-    c.innerHTML='<div class="sec-title">脱敏运营看板</div><div class="stat-row"><div class="stat"><b>'+childCount+'</b><small>档案数量</small></div><div class="stat"><b>'+totalSessions+'</b><small>训练题次</small></div></div><div class="note">机构管理员仅查看数据库脱敏计数，不展示儿童姓名、诊断、逐题记录、正确率或AI专业方案。</div>';
+    c.innerHTML='<div class="sec-title">脱敏运营看板</div><div class="stat-row"><div class="stat"><b>'+childCount+'</b><small>档案数量</small></div><div class="stat"><b>'+totalSessions+'</b><small>训练题次</small></div></div><div class="note">运营汇总用于机构服务质量管理，患者明细仍受授权关系限制。</div>';
     return;
   }
   if(!dbCanAccessChild(activeChild)){c.innerHTML='<div class="empty">当前账号未获得该儿童的数据授权</div>';return;}
@@ -254,7 +249,7 @@ renderAI=function(c){
   baseRenderAI(c);
   if(!(PERMS[currentRole].manage||PERMS[currentRole].review))return;
   const panel=document.createElement('div');panel.className='card';
-  panel.innerHTML='<b>训练方案复核</b><p class="hint">AI建议只能作为草稿。复核结果不会直接生效，必须由当前康复医疗专业人员通过实名服务端会话签署。</p><div class="review-actions"><button class="btn-primary" data-review-result="accepted">复核通过，待签署</button><button class="btn-ghost" data-review-result="modified">编辑方案草稿</button><button class="btn-ghost danger" data-review-result="rejected">退回重拟</button></div>';
+  panel.innerHTML='<b>训练方案复核</b><p class="hint">AI建议只能作为草稿。复核结果不会直接生效，必须由当前康复专业人员通过实名服务端会话签署。</p><div class="review-actions"><button class="btn-primary" data-review-result="accepted">复核通过，待签署</button><button class="btn-ghost" data-review-result="modified">编辑方案草稿</button><button class="btn-ghost danger" data-review-result="rejected">退回重拟</button></div>';
   c.appendChild(panel);
   $$('[data-review-result]',panel).forEach(b=>b.onclick=()=>{const result=b.dataset.reviewResult;if(result==='modified'){toast('请编辑具体模块参数并保存草稿');openClinicalHub('plans');return;}enhancedState.reviews.push({id:uid(),childId:activeChild,planGeneratedAt:plans[activeChild]?.generatedAt,result,workflowStatus:result==='accepted'?'reviewed-awaiting-signature':'returned',reviewerRole:currentRole,reviewerUserId:BACKEND_API.user?.userId||null,reviewerName:BACKEND_API.user?.displayName||ROLE_NAME[currentRole],reason:result==='accepted'?'已完成人工复核，等待实名签署':'需要重新制定方案',ts:Date.now()});saveEnhanced();audit('AI_PLAN_REVIEW',result);toast(result==='accepted'?'已复核，仍需实名签署后生效':'已退回重新制定');});
 };

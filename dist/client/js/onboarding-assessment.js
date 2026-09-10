@@ -171,7 +171,6 @@ renderArchive=function(c){
 const profileReportRenderer=renderReport;
 renderReport=function(c){
   profileReportRenderer(c);
-  if(currentRole==='admin')return;
   const profile=getCurrentAbilityProfile(activeChild);if(!profile)return;
   const wrapper=document.createElement('div');wrapper.innerHTML=abilityProfileCard(profile,currentRole==='child'?'child':'professional');
   const title=c.querySelector('.sec-title');if(title)title.insertAdjacentElement('afterend',wrapper);else c.prepend(wrapper);

@@ -45,6 +45,8 @@ $("#registerAccountBtn").onclick=registerAccount;
 $$('[data-login-role]').forEach(button=>button.onclick=()=>{
   pickRole=button.dataset.loginRole;
   $$('[data-login-role]').forEach(item=>{const selected=item===button;item.classList.toggle('selected',selected);item.setAttribute('aria-pressed',String(selected));});
+  const names={child:'儿童',parent:'家长',teacher:'康复专业人员'};
+  $('#selectedRoleHint').textContent='当前选择：'+names[pickRole]+'入口';
   showLoginMessage('');
 });
 

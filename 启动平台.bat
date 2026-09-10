@@ -18,8 +18,9 @@ if not defined QIZHI_PYTHON (
 
 echo Starting Qizhi Training Platform...
 echo Keep this window open while using the website.
-echo The browser address will be shown below.
+echo The newest page will open automatically in your browser.
 echo.
+set "QIZHI_OPEN_BROWSER=1"
 "%QIZHI_PYTHON%" backend\server.py
 
 set "QIZHI_EXIT=%ERRORLEVEL%"

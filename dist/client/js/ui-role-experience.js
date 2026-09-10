@@ -60,9 +60,10 @@ renderArchive=function(c){
   uxRenderArchive(c);if(currentRole!=='teacher')return;
   const pending=children.filter(x=>currentPlanReview(x.id).status!=='effective').length,riskCount=children.filter(x=>activeSafetyRisks(x.id).length).length;
   const toolbar=document.createElement('section');toolbar.className='professional-command';
-  toolbar.innerHTML='<div class="professional-kpis"><article><b>'+children.length+'</b><small>授权儿童</small></article><article><b>'+pending+'</b><small>待复核/签署</small></article><article class="'+(riskCount?'alert':'')+'"><b>'+riskCount+'</b><small>风险暂停</small></article><article><b>'+enhancedState.reevaluations.length+'</b><small>训练支持复评</small></article></div><div class="professional-tools professional-batch-tools"><span>授权范围内查看</span><button class="btn-ghost" id="compareChildren">批量对比</button></div>';
+  toolbar.innerHTML='<div class="professional-kpis"><article><b>'+children.length+'</b><small>授权儿童</small></article><article><b>'+pending+'</b><small>待复核/签署</small></article><article class="'+(riskCount?'alert':'')+'"><b>'+riskCount+'</b><small>风险暂停</small></article><article><b>'+enhancedState.reevaluations.length+'</b><small>训练支持复评</small></article></div><div class="professional-tools professional-batch-tools"><span>授权范围内查看</span><button class="btn-primary" id="managePatients">选择患者</button><button class="btn-ghost" id="compareChildren">批量对比</button></div>';
   c.prepend(toolbar);
   $$('.child-card',c).forEach(card=>{const child=children.find(x=>card.textContent.includes(x.name));if(!child)return;card.dataset.childId=child.id;card.dataset.status=child.status||'在训';const check=document.createElement('input');check.type='checkbox';check.className='child-compare-check';check.value=child.id;card.prepend(check);});
+  $('#managePatients').onclick=()=>openEnhancedPanel('patients');
   $('#compareChildren').onclick=()=>openChildrenComparison($$('.child-compare-check:checked',c).map(x=>x.value));
 };
 
@@ -84,6 +85,6 @@ renderAI=function(c){
   $$('[data-quick-edit]',c).forEach(button=>button.onclick=()=>openClinicalHub('plans'));
 };
 
-/* 复合管理员工作台顶部明确职责隔离。 */
+/* 康复专业人员设置页展示机构治理职责。 */
 const uxRenderSetting=renderSetting;
-renderSetting=function(c){uxRenderSetting(c);if(currentRole!=='admin')return;const banner=document.createElement('div');banner.className='admin-governance-banner';banner.innerHTML='<span>🏢🛡️</span><div><b>内容与机构治理中心</b><p>管理素材、组织、账号和审计；儿童临床档案与业务备份保持隔离，仅提供脱敏运营汇总。</p></div>';c.prepend(banner);};
+renderSetting=function(c){uxRenderSetting(c);if(currentRole!=='teacher')return;const banner=document.createElement('div');banner.className='admin-governance-banner';banner.innerHTML='<span>🏢🛡️</span><div><b>专业服务与机构治理</b><p>在同一工作台管理患者、训练内容、组织、账号、授权和审计。</p></div>';c.prepend(banner);};

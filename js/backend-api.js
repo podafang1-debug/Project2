@@ -4,21 +4,6 @@
  */
 const BACKEND_TOKEN_KEY='qizhi_backend_token';
 const BACKEND_API={available:false,storage:'browser',token:sessionStorage.getItem(BACKEND_TOKEN_KEY)||'',user:null,authorizedChildIds:[],anonymousSummary:null,accountSetupRequired:false};
-let adminLocalStateSnapshot=null;
-
-function isolateLocalClinicalStateForAdmin(){
-  if(adminLocalStateSnapshot||typeof enhancedState==='undefined'||typeof relationalDb==='undefined')return;
-  adminLocalStateSnapshot={children,records,tasks,plans,activeChild,bindings:relationalDb.userChildBindings,profiles:relationalDb.abilityProfiles,inferences:relationalDb.aiInferences,enhanced:Object.fromEntries(Object.entries(enhancedState).map(([key,value])=>[key,value]))};
-  children=[];records=[];tasks=[];plans={};activeChild=null;relationalDb.userChildBindings=[];relationalDb.abilityProfiles=[];relationalDb.aiInferences=[];
-  Object.keys(enhancedState).forEach(key=>{if(Array.isArray(enhancedState[key])&&(key==='auditLogs'||enhancedState[key].some(item=>item?.childId)))enhancedState[key]=[];});
-}
-function restoreLocalClinicalStateAfterAdmin(){
-  if(!adminLocalStateSnapshot)return;
-  children=adminLocalStateSnapshot.children;records=adminLocalStateSnapshot.records;tasks=adminLocalStateSnapshot.tasks;plans=adminLocalStateSnapshot.plans;activeChild=adminLocalStateSnapshot.activeChild;
-  relationalDb.userChildBindings=adminLocalStateSnapshot.bindings;relationalDb.abilityProfiles=adminLocalStateSnapshot.profiles;relationalDb.aiInferences=adminLocalStateSnapshot.inferences;
-  Object.entries(adminLocalStateSnapshot.enhanced).forEach(([key,value])=>enhancedState[key]=value);adminLocalStateSnapshot=null;
-}
-
 async function detectBackend(){
   try{
     const response=await fetch('/api/health',{signal:AbortSignal.timeout(1200)});
@@ -46,26 +31,17 @@ async function backendRequest(path,options={},requiresAuth=true){
   return result;
 }
 
-async function backendLogin(phone,password){
+async function backendLogin(phone,password,role){
   await backendReady;
   if(!BACKEND_API.available)return null;
-  const result=await backendRequest('/api/auth/login',{method:'POST',body:JSON.stringify({phone,password})},false);
+  const result=await backendRequest('/api/auth/login',{method:'POST',body:JSON.stringify({phone,password,role})},false);
   BACKEND_API.token=result.token;BACKEND_API.user=result.user;BACKEND_API.authorizedChildIds=result.authorizedChildIds||[];
   sessionStorage.setItem(BACKEND_TOKEN_KEY,result.token);
   await hydrateFromBackend();
   return result;
 }
 
-async function backendBootstrapAdmin(phone,displayName,password){
-  await backendReady;
-  if(!BACKEND_API.available)throw new Error('请先启动机构服务');
-  const result=await backendRequest('/api/auth/bootstrap-admin',{method:'POST',body:JSON.stringify({phone,displayName,password})},false);
-  BACKEND_API.accountSetupRequired=false;
-  return result;
-}
-
 async function backendLogout(){
-  restoreLocalClinicalStateAfterAdmin();
   if(BACKEND_API.available&&BACKEND_API.token){try{await backendRequest('/api/auth/logout',{method:'POST'});}catch(_error){}}
   BACKEND_API.token='';BACKEND_API.user=null;BACKEND_API.authorizedChildIds=[];sessionStorage.removeItem(BACKEND_TOKEN_KEY);
 }
@@ -99,9 +75,7 @@ async function hydrateFromBackend(){
   if(!BACKEND_API.available||!BACKEND_API.token)return false;
   const data=await backendRequest('/api/bootstrap');
   BACKEND_API.user=data.user;BACKEND_API.authorizedChildIds=data.authorizedChildIds||[];BACKEND_API.anonymousSummary=data.anonymousSummary||null;
-  if(data.user?.role==='admin')isolateLocalClinicalStateForAdmin();
-  else{
-    children=data.children||[];
+  children=data.children||[];
     records=data.trainingRecords||[];
     if(typeof relationalDb!=='undefined'){
       relationalDb.abilityProfiles=data.abilityProfiles||[];
@@ -117,7 +91,6 @@ async function hydrateFromBackend(){
       saveEnhanced();
     }
     plans={};children.forEach(child=>plans[child.id]=genPlan(child.id));saveAll();
-  }
   return true;
 }
 
@@ -171,7 +144,15 @@ async function backendCreateDataRequest(childId,type='deletion'){
   try{return await backendRequest('/api/data-requests',{method:'POST',body:JSON.stringify({childId,type})});}
   catch(error){console.warn('数据申请提交失败：',error.message);return null;}
 }
+async function backendListPatients(){
+  return backendRequest('/api/patients');
+}
+async function backendUpdatePatients(childIds){
+  const result=await backendRequest('/api/patients',{method:'POST',body:JSON.stringify({childIds})});
+  BACKEND_API.authorizedChildIds=result.authorizedChildIds||[];
+  return result;
+}
 async function adminBackend(path,options={}){
-  if(!BACKEND_API.available||BACKEND_API.user?.role!=='admin')throw new Error('请通过本地机构服务登录管理员账号');
+  if(!BACKEND_API.available||BACKEND_API.user?.role!=='teacher')throw new Error('请通过本地机构服务登录康复专业人员账号');
   return backendRequest('/api/admin/'+path,options);
 }

@@ -29,7 +29,7 @@ function currentPlanReview(childId){
   if(review?.result==='accepted'||review?.result==='modified')return {status:'reviewed',label:'已完成人工复核，等待实名签署',review};
   if(review?.result==='rejected')return {status:'rejected',label:'方案已拒绝，等待重新生成',review};
   if(!plan)return {status:'missing',label:'暂无方案'};
-  return {status:'pending',label:'等待康复医疗专业人员复核'};
+  return {status:'pending',label:'等待康复专业人员复核'};
 }
 
 function trainingGate(childId,moduleId){

@@ -22,9 +22,9 @@
     <div id="accountLoginForm">
       <h2>选择登录身份</h2>
       <div class="demo-login-grid login-role-picker" aria-label="选择登录身份">
-        <button type="button" class="child selected" data-login-role="child" aria-pressed="true"><span>⭐</span><b>儿童</b></button>
-        <button type="button" class="parent" data-login-role="parent" aria-pressed="false"><span>❤</span><b>家长</b></button>
-        <button type="button" class="teacher" data-login-role="teacher" aria-pressed="false"><span>✚</span><b>康复专业人员</b></button>
+        <button type="button" class="child selected" data-login-role="child" aria-pressed="true"><span>⭐</span><b>儿童</b><small>进入游戏</small></button>
+        <button type="button" class="parent" data-login-role="parent" aria-pressed="false"><span>❤</span><b>家长</b><small>查看分析</small></button>
+        <button type="button" class="teacher" data-login-role="teacher" aria-pressed="false"><span>✚</span><b>康复专业人员</b><small>患者与管理</small></button>
       </div>
       <div class="field"><label for="phoneInput">手机号码</label><input id="phoneInput" type="tel" inputmode="tel" maxlength="17" placeholder="请输入 11 位手机号码" autocomplete="username"></div>
       <div class="field"><label for="passwordInput">登录密码</label><input id="passwordInput" type="password" maxlength="72" placeholder="请输入登录密码" autocomplete="current-password"></div>
@@ -46,6 +46,7 @@
       <button class="login-btn" id="registerAccountBtn">注册</button>
       <button type="button" class="register-link" id="backToLoginBtn">返回登录</button>
     </div>
+    <div class="login-service-state" id="loginServiceState">正在连接机构服务…</div>
     <div class="err" id="loginErr" role="alert" aria-live="polite"></div>
   </div>
 </div>

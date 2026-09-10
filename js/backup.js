@@ -7,7 +7,7 @@ function scopedBackupEnhanced(allowedIds){
   }));
 }
 function exportData(){
-  if(currentRole==='admin'||!(dbCan(DB_ACTIONS.BACKUP_LIMITED)||dbCan(DB_ACTIONS.BACKUP_FULL))){toast("当前账号无权导出儿童业务数据");return;}
+  if(!(dbCan(DB_ACTIONS.BACKUP_LIMITED)||dbCan(DB_ACTIONS.BACKUP_FULL))){toast("当前账号无权导出儿童业务数据");return;}
   const allowedIds=new Set(dbAuthorizedChildIds()),scopedChildren=children.filter(item=>allowedIds.has(item.id));
   const data={_type:"cogtrain_backup",_v:3,children:scopedChildren,records:records.filter(item=>allowedIds.has(item.childId)),plans:Object.fromEntries(Object.entries(plans).filter(([id])=>allowedIds.has(id))),tasks:tasks.filter(item=>allowedIds.has(item.childId)),settings,
     relationalDb:{abilityProfiles:relationalDb.abilityProfiles.filter(item=>allowedIds.has(item.childId)),aiInferences:relationalDb.aiInferences.filter(item=>allowedIds.has(item.childId))},
@@ -21,7 +21,7 @@ $("#fileInput").onchange=e=>{
   const rd=new FileReader();
   rd.onload=async()=>{
     try{
-      if(currentRole==='admin'||!dbCan(DB_ACTIONS.BACKUP_LIMITED))throw new Error("当前账号无权恢复儿童业务数据");
+      if(!dbCan(DB_ACTIONS.BACKUP_LIMITED))throw new Error("当前账号无权恢复儿童业务数据");
       const d=JSON.parse(rd.result);if(d._type!=="cogtrain_backup")throw new Error("格式不符");
       children=Array.isArray(d.children)?d.children:[];records=Array.isArray(d.records)?d.records:[];plans=d.plans&&typeof d.plans==='object'?d.plans:{};tasks=Array.isArray(d.tasks)?d.tasks:[];
       if(d.settings&&typeof d.settings==='object')settings={...settings,...d.settings};

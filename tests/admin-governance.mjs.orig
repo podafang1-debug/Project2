@@ -1,0 +1,18 @@
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url);
+const {chromium}=require('C:/Users/ASUS1/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
+const page=await browser.newPage();page.setDefaultTimeout(10000);
+const errors=[];page.on('pageerror',error=>errors.push(error.message));
+await page.goto(process.env.ADMIN_URL||'http://127.0.0.1:8876/index.html',{waitUntil:'networkidle'});
+const adminPhone=process.env.ADMIN_PHONE,adminPassword=process.env.ADMIN_PASSWORD;if(!adminPhone||!adminPassword)throw new Error('Set ADMIN_PHONE and ADMIN_PASSWORD for the formal account UI test');await page.fill('#phoneInput',adminPhone);await page.fill('#passwordInput',adminPassword);await page.click('#loginBtn');await page.waitForSelector('.admin-governance-banner');
+const isolation=await page.evaluate(()=>({manage:PERMS.admin.manage,children:children.length,records:records.length,auditUnsafe:enhancedState.auditLogs.some(item=>item.role!=='admin'||/c1|c2|小明|乐乐|诊断/.test(String(item.detail))),backend:BACKEND_API.available,role:BACKEND_API.user?.role,permissions:[DB_ACTIONS.PROFILE_EDIT,DB_ACTIONS.AI_REVIEW].map(dbCan)}));
+if(isolation.manage||isolation.children||isolation.records||isolation.auditUnsafe||!isolation.backend||isolation.role!=='admin'||isolation.permissions.some(Boolean))throw new Error('Admin clinical isolation failed: '+JSON.stringify(isolation));
+if(await page.locator('[data-tab="archive"]:visible,[data-tab="ai"]:visible').count())throw new Error('Clinical tabs are visible to admin');
+await page.click('[data-panel="operations"]');await page.waitForSelector('.admin-kpis');if(await page.locator('.admin-kpis article').count()<6)throw new Error('Operational KPIs are incomplete');await page.click('#closeAdminPanel');
+await page.click('[data-panel="accounts"]');await page.waitForSelector('#newAccountRole');if(!await page.locator('#adminConfirmPassword').count())throw new Error('Sensitive account actions lack re-authentication');const accountText=await page.locator('#adminPanelBody').innerText();if(accountText.includes('小明')||accountText.includes('乐乐'))throw new Error('Admin account view exposed child names');await page.click('#closeAdminPanel');
+await page.click('[data-panel="audit"]');await page.waitForSelector('#adminPanelBody .note');const auditText=await page.locator('#adminPanelBody .admin-row').allInnerTexts().then(rows=>rows.join('\n'));if(auditText.includes('小明')||auditText.includes('乐乐')||auditText.includes('诊断'))throw new Error('Admin audit view exposed clinical detail');await page.click('#closeAdminPanel');
+await page.click('[data-panel="backupGovernance"]');await page.waitForSelector('#createServerBackup');if(!await page.locator('#adminConfirmPassword').count())throw new Error('Backup action lacks re-authentication');
+if(errors.length)throw new Error(errors.join('\n'));
+console.log('Admin governance UI passed: clinical isolation, operational KPIs, pseudonymous accounts, redacted audit and re-authentication.');
+await browser.close();

@@ -2,7 +2,7 @@ PRAGMA journal_mode = WAL;
 
 -- database-backed application identity and training state
 CREATE TABLE IF NOT EXISTS roles (
-  role_code TEXT PRIMARY KEY CHECK (role_code IN ('child','parent','teacher','admin')),
+  role_code TEXT PRIMARY KEY CHECK (role_code IN ('child','parent','teacher')),
   display_name TEXT NOT NULL
 );
 
@@ -37,9 +37,18 @@ CREATE TABLE IF NOT EXISTS app_users (
 );
 CREATE INDEX IF NOT EXISTS idx_app_users_role_status ON app_users(role, status);
 
+CREATE TABLE IF NOT EXISTS account_roles (
+  user_id TEXT NOT NULL REFERENCES app_users(phone) ON DELETE CASCADE,
+  role_code TEXT NOT NULL REFERENCES roles(role_code) ON DELETE CASCADE,
+  PRIMARY KEY (user_id, role_code)
+);
+CREATE INDEX IF NOT EXISTS idx_account_roles_role
+ON account_roles(role_code, user_id);
+
 CREATE TABLE IF NOT EXISTS auth_sessions (
   token_hash TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES app_users(phone) ON DELETE CASCADE,
+  active_role TEXT NOT NULL REFERENCES roles(role_code),
   expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL
 );

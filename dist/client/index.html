@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#F7A14F">
     <title>启智训练台 · 个性化康复训练辅助平台</title>
     <!-- 引入样式 -->
-    <link rel="stylesheet" href="css/style.css?v=20260908b">
+    <link rel="stylesheet" href="css/style.css?v=20260910a">
     <link rel="stylesheet" href="css/profile-agent.css">
     <link rel="stylesheet" href="css/rubric-alignment.css?v=20260908c">
     <link rel="stylesheet" href="css/curriculum-levels.css?v=20260909a">
@@ -17,28 +17,35 @@
   <div class="brand">
     <div class="logo" id="logoIcon"></div>
     <h1>启智训练台</h1>
-    <p>面向智力障碍及有特殊认知支持需要儿童的个性化训练平台<br>账号身份和数据权限由机构服务统一验证</p>
   </div>
   <div class="account-login-card">
-    <div class="login-role-list" aria-label="支持的账号角色">
-      <span>儿童</span><span>家长</span><span>康复医疗专业人员</span><span>内容与机构管理员</span>
-    </div>
     <div id="accountLoginForm">
-      <h2>账号登录</h2>
+      <h2>选择登录身份</h2>
+      <div class="demo-login-grid login-role-picker" aria-label="选择登录身份">
+        <button type="button" class="child selected" data-login-role="child" aria-pressed="true"><span>⭐</span><b>儿童</b></button>
+        <button type="button" class="parent" data-login-role="parent" aria-pressed="false"><span>❤</span><b>家长</b></button>
+        <button type="button" class="teacher" data-login-role="teacher" aria-pressed="false"><span>✚</span><b>康复专业人员</b></button>
+      </div>
       <div class="field"><label for="phoneInput">手机号码</label><input id="phoneInput" type="tel" inputmode="tel" maxlength="17" placeholder="请输入 11 位手机号码" autocomplete="username"></div>
       <div class="field"><label for="passwordInput">登录密码</label><input id="passwordInput" type="password" maxlength="72" placeholder="请输入登录密码" autocomplete="current-password"></div>
       <button class="login-btn" id="loginBtn">登录</button>
+      <button type="button" class="register-link" id="openRegisterBtn">家长或康复专业人员注册</button>
     </div>
-    <div id="adminSetupForm" class="hidden">
-      <h2>初始化系统管理员</h2>
-      <p class="setup-copy">仅在系统没有任何账号时开放。创建后，其他账号均由管理员分配角色与权限。</p>
-      <div class="field"><label for="setupName">管理员姓名</label><input id="setupName" maxlength="40" autocomplete="name"></div>
-      <div class="field"><label for="setupPhone">手机号码</label><input id="setupPhone" type="tel" inputmode="tel" maxlength="17" autocomplete="username"></div>
-      <div class="field"><label for="setupPassword">登录密码</label><input id="setupPassword" type="password" maxlength="72" placeholder="8–72 位，包含字母和数字" autocomplete="new-password"></div>
-      <div class="field"><label for="setupPasswordConfirm">确认密码</label><input id="setupPasswordConfirm" type="password" maxlength="72" autocomplete="new-password"></div>
-      <button class="login-btn" id="setupAdminBtn">创建首位管理员</button>
+    <div id="accountRegisterForm" class="hidden">
+      <h2>注册账号</h2>
+      <div class="field"><label for="registerRole">注册身份</label><select id="registerRole"><option value="parent">家长</option><option value="teacher">康复专业人员</option></select></div>
+      <div class="field"><label for="registerName">姓名或称呼</label><input id="registerName" maxlength="40" autocomplete="name"></div>
+      <div id="registerChildFields">
+        <div class="field parent-child-name"><label for="registerChildName">儿童称呼</label><input id="registerChildName" maxlength="30"></div>
+        <div class="field"><label for="registerBirthYear">儿童出生年份</label><input id="registerBirthYear" type="number" min="2000" max="2026" inputmode="numeric"></div>
+      </div>
+      <div class="field"><label for="registerPhone">手机号码</label><input id="registerPhone" type="tel" inputmode="tel" maxlength="17" autocomplete="username"></div>
+      <div class="field"><label for="registerPassword">登录密码</label><input id="registerPassword" type="password" maxlength="72" placeholder="8–72 位，包含字母和数字" autocomplete="new-password"></div>
+      <div class="field"><label for="registerPasswordConfirm">确认密码</label><input id="registerPasswordConfirm" type="password" maxlength="72" autocomplete="new-password"></div>
+      <p class="teacher-register-note hidden" id="teacherRegisterNote">为保护儿童数据，注册后需由已认证的康复专业人员审核启用。</p>
+      <button class="login-btn" id="registerAccountBtn">注册</button>
+      <button type="button" class="register-link" id="backToLoginBtn">返回登录</button>
     </div>
-    <div class="login-service-state" id="loginServiceState">正在连接机构服务…</div>
     <div class="err" id="loginErr" role="alert" aria-live="polite"></div>
   </div>
 </div>
@@ -91,29 +98,29 @@
 <!-- 按依赖顺序加载拆分后的业务模块 -->
   <script src="js/utils.js"></script>
   <script src="js/storage.js"></script>
-  <script src="js/config.js"></script>
+  <script src="js/config.js?v=20260910a"></script>
   <script src="js/ai.js"></script>
-  <script src="js/auth.js"></script>
+  <script src="js/auth.js?v=20260910a"></script>
   <script src="js/app.js"></script>
   <script src="js/children.js"></script>
   <script src="js/training.js"></script>
   <script src="js/assessment.js"></script>
   <script src="js/ai-view.js"></script>
   <script src="js/report.js"></script>
-  <script src="js/settings.js"></script>
+  <script src="js/settings.js?v=20260910a"></script>
   <script src="js/backup.js"></script>
   <script src="js/modal.js"></script>
-  <script src="js/database.js"></script>
-  <script src="js/enhanced.js"></script>
-  <script src="js/backend-api.js"></script>
-  <script src="js/admin-governance.js?v=20260909a"></script>
+  <script src="js/database.js?v=20260910a"></script>
+  <script src="js/enhanced.js?v=20260910a"></script>
+  <script src="js/backend-api.js?v=20260910a"></script>
+  <script src="js/admin-governance.js?v=20260910a"></script>
   <script src="js/profile-ai.js"></script>
   <script src="js/onboarding-assessment.js?v=20260907d"></script>
   <script src="js/assessment-framework.js"></script>
   <script src="js/rehabilitation-methods.js"></script>
   <script src="js/safety-governance.js?v=20260907c"></script>
   <script src="js/clinical-workflow.js"></script>
-  <script src="js/ui-role-experience.js"></script>
+  <script src="js/ui-role-experience.js?v=20260910a"></script>
   <script src="js/scanner-import.js"></script>
   <script src="js/profile-agent.js"></script>
   <script src="js/question-logic-v2.js?v=20260908a"></script>

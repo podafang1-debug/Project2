@@ -35,7 +35,7 @@ openEnhancedPanel=function(type){
 };
 
 function openProfessionalAssessmentPanel(){
-  if(currentRole!=='teacher'||!dbCan(DB_ACTIONS.ASSESS_EDIT)){toast('仅获授权的康复医疗专业人员可录入专业评估');return;}
+  if(currentRole!=='teacher'||!dbCan(DB_ACTIONS.ASSESS_EDIT)){toast('仅获授权的康复专业人员可录入专业评估');return;}
   const authorized=children.filter(x=>dbCanAccessChild(x.id));
   if(!authorized.length){toast('当前账号没有可录入评估的授权儿童');return;}
   const identity=BACKEND_API.user;

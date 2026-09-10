@@ -8,25 +8,65 @@ $("#t3").innerHTML=svg("gear","currentColor",22);
 $("#t4").innerHTML=svg("chart","currentColor",22);
 $("#t5").innerHTML=svg("shield","currentColor",22);
 
-let pickRole=null; // 仅保留旧扩展脚本兼容；正式角色由服务端账号决定。
+let pickRole='child';
 
 function showLoginMessage(message,type='error'){
   const box=$("#loginErr");box.textContent=message||'';box.dataset.type=type;
 }
 
 function setAuthenticationMode(){
-  const online=BACKEND_API.available,setup=online&&BACKEND_API.accountSetupRequired;
-  $("#accountLoginForm").classList.toggle("hidden",setup);
-  $("#adminSetupForm").classList.toggle("hidden",!setup);
-  $("#loginServiceState").textContent=!online?'机构服务未启动，正式账号登录暂不可用。':setup?'尚无账号，请先初始化首位系统管理员。':'角色与数据权限将根据手机号账号自动加载。';
+  const online=BACKEND_API.available;
+  $("#accountLoginForm").classList.remove("hidden");
+  $("#accountRegisterForm").classList.add("hidden");
+  showLoginMessage(online?'':'机构服务未启动，账号登录暂不可用。');
   $("#loginBtn").disabled=!online;
-  if(setup)$("#setupPhone").focus();else $("#phoneInput").focus();
 }
 
 $("#phoneInput").addEventListener("keydown",event=>{if(event.key==="Enter")$("#passwordInput").focus();});
 $("#passwordInput").addEventListener("keydown",event=>{if(event.key==="Enter")doLogin();});
 $("#loginBtn").onclick=doLogin;
-$("#setupAdminBtn").onclick=setupInitialAdmin;
+
+function setRegistrationRole(){
+  const role=$("#registerRole").value,isTeacher=role==="teacher";
+  $("#registerChildFields").classList.toggle("hidden",isTeacher);
+  $("#teacherRegisterNote").classList.toggle("hidden",!isTeacher);
+}
+function showRegistration(){
+  if(!BACKEND_API.available){showLoginMessage("请先启动机构服务");return;}
+  $("#accountLoginForm").classList.add("hidden");$("#accountRegisterForm").classList.remove("hidden");showLoginMessage("");setRegistrationRole();$("#registerName").focus();
+}
+function showAccountLogin(){
+  $("#accountRegisterForm").classList.add("hidden");$("#accountLoginForm").classList.remove("hidden");showLoginMessage("");$("#phoneInput").focus();
+}
+$("#openRegisterBtn").onclick=showRegistration;
+$("#backToLoginBtn").onclick=showAccountLogin;
+$("#registerRole").onchange=setRegistrationRole;
+$("#registerAccountBtn").onclick=registerAccount;
+$$('[data-login-role]').forEach(button=>button.onclick=()=>{
+  pickRole=button.dataset.loginRole;
+  $$('[data-login-role]').forEach(item=>{const selected=item===button;item.classList.toggle('selected',selected);item.setAttribute('aria-pressed',String(selected));});
+  showLoginMessage('');
+});
+
+async function registerAccount(){
+  const role=$("#registerRole").value,displayName=$("#registerName").value.trim(),phone=$("#registerPhone").value.trim();
+  const password=$("#registerPassword").value,confirm=$("#registerPasswordConfirm").value;
+  if(!displayName){showLoginMessage("请填写姓名或称呼");return;}
+  if(password!==confirm){showLoginMessage("两次输入的密码不一致");return;}
+  const payload={role,displayName,phone,password};
+  if(role==="parent"){payload.birthYear=+$("#registerBirthYear").value;payload.childDisplayName=$("#registerChildName").value.trim();}
+  const button=$("#registerAccountBtn");button.disabled=true;button.textContent="正在注册…";showLoginMessage("");
+  try{
+    const result=await backendRequest("/api/auth/register",{method:"POST",body:JSON.stringify(payload)},false);
+    if(result.status==="pending"){
+      pickRole='teacher';$('[data-login-role="teacher"]').click();showAccountLogin();showLoginMessage(result.message,"success");return;
+    }
+    pickRole=role;$('[data-login-role="'+role+'"]').click();
+    $("#phoneInput").value=phone;$("#passwordInput").value='';
+    showAccountLogin();showLoginMessage("注册成功，请使用刚才设置的密码登录。","success");
+  }catch(error){showLoginMessage(error.message||"注册失败，请重试");}
+  finally{button.disabled=false;button.textContent="注册";}
+}
 
 async function doLogin(){
   const phone=$("#phoneInput").value.trim(),password=$("#passwordInput").value;
@@ -36,23 +76,11 @@ async function doLogin(){
   try{
     await backendReady;
     if(!BACKEND_API.available)throw new Error("请先启动机构服务");
-    const result=await backendLogin(phone,password);
+    const result=await backendLogin(phone,password,pickRole);
     currentRole=result.user.role;lsSet("session",currentRole);enterApp();
   }catch(error){
     currentRole=null;lsSet("session",null);showLoginMessage(error.message||"登录失败，请重试");
   }finally{button.disabled=!BACKEND_API.available;button.textContent="登录";}
-}
-
-async function setupInitialAdmin(){
-  const displayName=$("#setupName").value.trim(),phone=$("#setupPhone").value.trim(),password=$("#setupPassword").value,confirm=$("#setupPasswordConfirm").value;
-  if(displayName.length<2){showLoginMessage("请填写管理员姓名");return;}
-  if(password!==confirm){showLoginMessage("两次输入的密码不一致");return;}
-  const button=$("#setupAdminBtn");button.disabled=true;button.textContent="正在初始化…";showLoginMessage("");
-  try{
-    await backendBootstrapAdmin(phone,displayName,password);
-    $("#phoneInput").value=phone;$("#passwordInput").value='';setAuthenticationMode();showLoginMessage("管理员账号已创建，请使用手机号和密码登录。",'success');
-  }catch(error){showLoginMessage(error.message||"初始化失败，请重试");}
-  finally{button.disabled=false;button.textContent="创建首位管理员";}
 }
 
 window.addEventListener('DOMContentLoaded',()=>backendReady.then(setAuthenticationMode));

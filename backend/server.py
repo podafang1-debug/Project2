@@ -16,9 +16,11 @@ import os
 import secrets
 import socket
 import sqlite3
+import threading
 import uuid
 import urllib.error
 import urllib.request
+import webbrowser
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -43,14 +45,13 @@ ASSESSMENT_TOOL_DOMAINS = {
 ROLE_ACTIONS = {
     "child": {"session:read", "profile:create", "profile:read", "ai:generate", "questions:read", "training:create"},
     "parent": {"session:read", "profile:read", "observation:create", "intervention:create", "care:confirm", "consent:write", "data-request:create", "questions:read", "training:create"},
-    "teacher": {"session:read", "child:write", "child:delete", "profile:create", "profile:read", "assessment:create", "ai:generate", "intervention:create", "care:write", "care:sign", "safety:flag", "safety:resolve", "import:create", "import:read", "import:review", "import:commit", "agent:run", "agent:review", "questions:read", "training:create"},
-    "admin": {"session:read", "profile:summary", "content:review", "content:publish", "organization:manage", "account:manage", "audit:read", "operations:read", "consent:govern", "sharing:manage", "backup:manage", "session:manage", "import:summary"},
+    "teacher": {"session:read", "child:write", "child:delete", "profile:create", "profile:read", "profile:summary", "assessment:create", "ai:generate", "intervention:create", "care:write", "care:sign", "safety:flag", "safety:resolve", "import:create", "import:read", "import:review", "import:commit", "import:summary", "agent:run", "agent:review", "questions:read", "training:create", "content:review", "content:publish", "organization:manage", "account:manage", "audit:read", "operations:read", "consent:govern", "sharing:manage", "backup:manage", "session:manage"},
 }
 
 SESSION_HOURS = 12
 PASSWORD_ITERATIONS = 310_000
 LEGACY_DEMO_USER_IDS = {"user_child", "user_parent", "user_teacher", "user_admin", "user_doctor", "user_reviewer"}
-ROLE_NAMES = {"child": "儿童", "parent": "家长", "teacher": "康复医疗专业人员", "admin": "内容与机构管理员"}
+ROLE_NAMES = {"child": "儿童", "parent": "家长", "teacher": "康复专业人员"}
 
 
 def utc_now() -> str:
@@ -103,6 +104,7 @@ def initialise_database() -> None:
     with connect() as database:
         migrate_legacy_identity_schema(database)
         database.executescript(schema)
+        migrate_role_model(database)
         sync_permission_catalog(database)
         seed_reference_data(database)
         database.execute("PRAGMA optimize")
@@ -131,6 +133,45 @@ def password_digest(password: str, salt: str, iterations: int = PASSWORD_ITERATI
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), iterations).hex()
 
 
+def seed_demo_role_accounts(database: sqlite3.Connection) -> None:
+    """补齐一个家庭共享账号和一个康复专业人员示例账号。"""
+    timestamp = utc_now()
+    accounts = (
+        ("13600000001", "teacher", "示例康复专业人员", "Teacher2026!"),
+        ("13700000002", "parent", "小明家庭", "Parent2026!"),
+    )
+    for phone, role, display_name, password in accounts:
+        if database.execute("SELECT 1 FROM app_users WHERE phone=?", (phone,)).fetchone():
+            continue
+        salt = secrets.token_hex(16)
+        database.execute(
+            "INSERT INTO app_users(phone,role,display_name,password_salt,password_hash,password_iterations,status,created_at,updated_at,password_changed_at) VALUES(?,?,?,?,?,?,'active',?,?,?)",
+            (phone, role, display_name, salt, password_digest(password, salt), PASSWORD_ITERATIONS, timestamp, timestamp, timestamp),
+        )
+    roles = (
+        ("13600000001", "teacher"),
+        ("13700000002", "parent"),
+        ("13700000002", "child"),
+    )
+    for phone, role in roles:
+        database.execute("INSERT OR IGNORE INTO account_roles(user_id,role_code) VALUES(?,?)", (phone, role))
+    legacy_child = database.execute("SELECT display_name FROM app_users WHERE phone='13800000003'").fetchone()
+    if legacy_child and legacy_child["display_name"] == "小明（儿童账号）":
+        database.execute("DELETE FROM app_users WHERE phone='13800000003'")
+    bindings = (
+        ("13600000001", "c1", "rehabilitation-medical"),
+        ("13600000001", "c2", "rehabilitation-medical"),
+        ("13700000002", "c1", "guardian"),
+    )
+    for phone, child_id, scope in bindings:
+        if not database.execute("SELECT 1 FROM children WHERE child_id=?", (child_id,)).fetchone():
+            continue
+        database.execute(
+            "INSERT OR IGNORE INTO user_child_bindings(binding_id,user_id,child_id,scope,status,valid_from,valid_to) VALUES(?,?,?,?,'active',?,NULL)",
+            ("bind-demo-" + phone + "-" + child_id, phone, child_id, scope, timestamp[:10]),
+        )
+
+
 def migrate_legacy_identity_schema(database: sqlite3.Connection) -> None:
     """将只含示例账号的旧身份表迁移为手机号主键，不触碰业务数据表。"""
     columns = {row["name"] for row in database.execute("PRAGMA table_info(app_users)").fetchall()}
@@ -146,14 +187,38 @@ def migrate_legacy_identity_schema(database: sqlite3.Connection) -> None:
     database.commit()
     database.execute("PRAGMA foreign_keys=OFF")
     database.execute("DROP TABLE IF EXISTS auth_login_failures")
-    database.execute("CREATE TABLE IF NOT EXISTS roles(role_code TEXT PRIMARY KEY CHECK(role_code IN ('child','parent','teacher','admin')),display_name TEXT NOT NULL)")
+    database.execute("CREATE TABLE IF NOT EXISTS roles(role_code TEXT PRIMARY KEY CHECK(role_code IN ('child','parent','teacher')),display_name TEXT NOT NULL)")
     for role, display_name in ROLE_NAMES.items():
         database.execute("INSERT OR IGNORE INTO roles(role_code,display_name) VALUES(?,?)", (role, display_name))
-    database.execute("CREATE TABLE app_users_new(phone TEXT PRIMARY KEY CHECK(length(phone)=11 AND phone GLOB '1[3-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'),user_id TEXT GENERATED ALWAYS AS (phone) STORED UNIQUE,role TEXT NOT NULL REFERENCES roles(role_code),display_name TEXT NOT NULL,password_salt TEXT NOT NULL,password_hash TEXT NOT NULL,password_iterations INTEGER NOT NULL CHECK(password_iterations>=120000),status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),created_at TEXT NOT NULL,updated_at TEXT NOT NULL,password_changed_at TEXT NOT NULL)")
-    database.execute("DROP TABLE app_users")
-    database.execute("ALTER TABLE app_users_new RENAME TO app_users")
-    database.commit()
-    database.execute("PRAGMA foreign_keys=ON")
+
+
+def migrate_role_model(database: sqlite3.Connection) -> None:
+    """把旧管理员并入专业人员，并支持家庭账号按入口选择儿童或家长身份。"""
+    session_columns = {row["name"] for row in database.execute("PRAGMA table_info(auth_sessions)").fetchall()}
+    if "active_role" not in session_columns:
+        database.execute("ALTER TABLE auth_sessions ADD COLUMN active_role TEXT")
+    database.execute(
+        """CREATE TABLE IF NOT EXISTS account_roles(
+               user_id TEXT NOT NULL REFERENCES app_users(phone) ON DELETE CASCADE,
+               role_code TEXT NOT NULL REFERENCES roles(role_code) ON DELETE CASCADE,
+               PRIMARY KEY(user_id,role_code))"""
+    )
+    database.execute("CREATE INDEX IF NOT EXISTS idx_account_roles_role ON account_roles(role_code,user_id)")
+    database.execute("UPDATE app_users SET role='teacher',updated_at=? WHERE role='admin'", (utc_now(),))
+    database.execute("INSERT OR IGNORE INTO account_roles(user_id,role_code) SELECT phone,role FROM app_users")
+    database.execute(
+        """INSERT OR IGNORE INTO account_roles(user_id,role_code)
+           SELECT DISTINCT u.phone,'child' FROM app_users u
+           JOIN user_child_bindings b ON b.user_id=u.phone
+           WHERE u.role='parent' AND b.scope='guardian' AND b.status='active'"""
+    )
+    database.execute(
+        """UPDATE auth_sessions SET active_role=(SELECT role FROM app_users WHERE phone=auth_sessions.user_id)
+           WHERE active_role IS NULL OR active_role='admin'"""
+    )
+    database.execute("DELETE FROM account_roles WHERE role_code='admin'")
+    database.execute("DELETE FROM role_permissions WHERE role_code='admin'")
+    database.execute("DELETE FROM roles WHERE role_code='admin'")
 
 
 def sync_permission_catalog(database: sqlite3.Connection) -> None:
@@ -167,7 +232,7 @@ def sync_permission_catalog(database: sqlite3.Connection) -> None:
 
 
 def seed_reference_data(database: sqlite3.Connection) -> None:
-    """只保留非账号参考数据；正式账号由首次初始化或管理员创建。"""
+    """初始化示例儿童、家庭共享账号和康复专业人员账号。"""
     timestamp = utc_now()
     demo_children = (
         {"id": "c1", "name": "小明（化名）", "avatarColor": "#4F86F7", "birthYear": 2018, "baseline": {"attention": 45, "memory": 55, "logic": 40}, "note": "对声音敏感，偏爱动物与图形卡片", "status": "在训", "createdAt": timestamp},
@@ -189,6 +254,7 @@ def seed_reference_data(database: sqlite3.Connection) -> None:
         )
 
 
+    seed_demo_role_accounts(database)
 def decode_rows(rows: list[sqlite3.Row], key: str = "payload") -> list[dict]:
     return [json.loads(row[key]) for row in rows]
 
@@ -210,6 +276,14 @@ class ApiHandler(SimpleHTTPRequestHandler):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(PROJECT_ROOT), **kwargs)
+
+    def end_headers(self) -> None:
+        """本地开发页面始终读取当前文件，避免浏览器显示修改前的登录页。"""
+        if not urlparse(self.path).path.startswith("/api/"):
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+        super().end_headers()
 
     def json_response(self, status: int, payload: object) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -266,7 +340,7 @@ class ApiHandler(SimpleHTTPRequestHandler):
         token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
         with connect() as database:
             row = database.execute(
-                """SELECT u.phone AS user_id,u.phone,u.role,u.display_name,u.status,s.expires_at
+                """SELECT u.phone AS user_id,u.phone,s.active_role AS role,u.display_name,u.status,s.expires_at
                    FROM auth_sessions s JOIN app_users u ON u.phone=s.user_id
                    WHERE s.token_hash=? AND u.status='active' AND s.expires_at>?""",
                 (token_hash, utc_now()),
@@ -288,8 +362,6 @@ class ApiHandler(SimpleHTTPRequestHandler):
 
     def authorized_child_ids(self) -> list[str]:
         user = self.authenticated_user()
-        if user["role"] == "admin":
-            return []
         with connect() as database:
             rows = database.execute(
                 """SELECT child_id FROM user_child_bindings
@@ -302,16 +374,16 @@ class ApiHandler(SimpleHTTPRequestHandler):
         if not child_id or child_id not in self.authorized_child_ids():
             raise PermissionError("当前账号未获得该儿童的数据授权")
 
-    def require_admin_confirmation(self, data: dict, action: str) -> dict:
+    def require_privileged_confirmation(self, data: dict, action: str) -> dict:
         self.require(action)
         user = self.authenticated_user()
         password = str(data.get("confirmationPassword", ""))
         if not password:
-            raise PermissionError("请输入当前管理员密码完成二次确认")
+            raise PermissionError("请输入当前康复专业人员密码完成二次确认")
         with connect() as database:
             row = database.execute("SELECT password_salt,password_hash,password_iterations FROM app_users WHERE phone=? AND status='active'", (user["user_id"],)).fetchone()
         if not row or not hmac.compare_digest(password_digest(password, row["password_salt"], row["password_iterations"]), row["password_hash"]):
-            raise PermissionError("管理员二次确认失败")
+            raise PermissionError("康复专业人员二次确认失败")
         return user
 
     def child_id_from_ref(self, database: sqlite3.Connection, child_ref: str) -> str:
@@ -325,11 +397,14 @@ class ApiHandler(SimpleHTTPRequestHandler):
             phone = normalize_phone(data.get("phone"))
         except ValueError:
             raise PermissionError("手机号或密码错误") from None
+        requested_role = str(data.get("role", "")).strip()
+        if requested_role not in ROLE_NAMES:
+            raise PermissionError("请选择儿童、家长或康复专业人员入口")
         password = str(data.get("password", ""))
         if not password or len(password) > 72:
             raise PermissionError("手机号或密码错误")
         client_key = hashlib.sha256(self.client_address[0].encode("utf-8")).hexdigest()
-        account_key = hashlib.sha256(phone.encode("utf-8")).hexdigest()
+        account_key = hashlib.sha256((phone + ":" + requested_role).encode("utf-8")).hexdigest()
         now = datetime.now(timezone.utc)
         with connect() as database:
             failure = database.execute("SELECT * FROM auth_login_failures WHERE client_key=? AND account_key=?", (client_key, account_key)).fetchone()
@@ -350,40 +425,94 @@ class ApiHandler(SimpleHTTPRequestHandler):
                     (client_key, account_key, count, start.isoformat(), lock, now.isoformat()))
                 database.commit()
                 raise PermissionError("手机号或密码错误")
+            allowed_roles = {item["role_code"] for item in database.execute("SELECT role_code FROM account_roles WHERE user_id=?", (phone,)).fetchall()}
+            if requested_role not in allowed_roles:
+                raise PermissionError("该账号不能从所选角色入口登录")
             database.execute("DELETE FROM auth_login_failures WHERE client_key=? AND account_key=?", (client_key, account_key))
             token = secrets.token_urlsafe(32)
             token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
             expires_at = (datetime.now(timezone.utc) + timedelta(hours=SESSION_HOURS)).isoformat()
             database.execute("DELETE FROM auth_sessions WHERE expires_at<=?", (utc_now(),))
             database.execute(
-                "INSERT INTO auth_sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)",
-                (token_hash, row["user_id"], expires_at, utc_now()),
+                "INSERT INTO auth_sessions(token_hash,user_id,active_role,expires_at,created_at) VALUES(?,?,?,?,?)",
+                (token_hash, row["user_id"], requested_role, expires_at, utc_now()),
             )
             child_rows = database.execute(
                 "SELECT child_id FROM user_child_bindings WHERE user_id=? AND status='active' AND (valid_to IS NULL OR valid_to>=?)",
                 (row["user_id"], utc_now()[:10]),
             ).fetchall()
-            append_audit(database, dict(row), "LOGIN_SUCCEEDED", "session", opaque_ref(token, "SESSION"), {})
+            session_user = {**dict(row), "role": requested_role}
+            append_audit(database, session_user, "LOGIN_SUCCEEDED", "session", opaque_ref(token, "SESSION"), {"entryRole": requested_role})
         self.json_response(200, {
             "token": token,
             "expiresAt": expires_at,
-            "user": public_user(row),
+            "user": public_user(session_user),
             "authorizedChildIds": [item["child_id"] for item in child_rows],
         })
 
-    def bootstrap_admin(self, data: dict) -> None:
-        phone = normalize_phone(data.get("phone")); password = validate_password(data.get("password")); display_name = str(data.get("displayName", "")).strip()
-        if len(display_name) < 2 or len(display_name) > 40:
-            raise ValueError("管理员姓名须为 2–40 个字符")
-        salt = secrets.token_hex(16); timestamp = utc_now()
+    def register_account(self, data: dict) -> None:
+        role = str(data.get("role", "")).strip()
+        if role not in {"parent", "teacher"}:
+            raise ValueError("请选择家长注册或康复专业人员注册")
+        phone = normalize_phone(data.get("phone"))
+        password = validate_password(data.get("password"))
+        display_name = str(data.get("displayName", "")).strip()
+        if not display_name or len(display_name) > 40:
+            raise ValueError("请填写 1–40 个字符的姓名或称呼")
+        timestamp = utc_now()
         with connect() as database:
             database.execute("BEGIN IMMEDIATE")
-            if database.execute("SELECT 1 FROM app_users LIMIT 1").fetchone():
-                raise PermissionError("系统已完成初始化，请由管理员创建账号")
-            database.execute("INSERT INTO app_users(phone,role,display_name,password_salt,password_hash,password_iterations,status,created_at,updated_at,password_changed_at) VALUES(?,'admin',?,?,?,?, 'active',?,?,?)", (phone, display_name, salt, password_digest(password, salt), PASSWORD_ITERATIONS, timestamp, timestamp, timestamp))
-            created = {"user_id": phone, "phone": phone, "role": "admin", "display_name": display_name}
-            append_audit(database, created, "INITIAL_ADMIN_CREATED", "account", opaque_ref(phone, "ACCOUNT"), {})
-        self.json_response(201, {"created": True})
+            if database.execute("SELECT 1 FROM app_users WHERE phone=?", (phone,)).fetchone():
+                raise ValueError("该手机号已注册")
+            account_status = "disabled" if role == "teacher" else "active"
+            salt = secrets.token_hex(16)
+            database.execute(
+                "INSERT INTO app_users(phone,role,display_name,password_salt,password_hash,password_iterations,status,created_at,updated_at,password_changed_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (phone, role, display_name, salt, password_digest(password, salt), PASSWORD_ITERATIONS, account_status, timestamp, timestamp, timestamp),
+            )
+            child_id = None
+            account_roles = ("parent", "child") if role == "parent" else ("teacher",)
+            database.executemany(
+                "INSERT INTO account_roles(user_id,role_code) VALUES(?,?)",
+                [(phone, account_role) for account_role in account_roles],
+            )
+            if role == "parent":
+                child_name = str(data.get("childDisplayName", "")).strip()
+                if not child_name or len(child_name) > 30:
+                    raise ValueError("请填写 1–30 个字符的儿童称呼")
+                try:
+                    birth_year = int(data.get("birthYear"))
+                except (TypeError, ValueError):
+                    raise ValueError("请填写正确的儿童出生年份") from None
+                if birth_year < 2000 or birth_year > datetime.now().year:
+                    raise ValueError("儿童出生年份超出支持范围")
+                child_id = "child-" + uuid.uuid4().hex
+                child = {
+                    "id": child_id, "name": child_name, "avatarColor": "#4F86F7",
+                    "birthYear": birth_year, "diagnosis": "", "severity": "待评估",
+                    "languageLevel": "未填写", "adlLevel": "未填写", "status": "在训",
+                    "baseline": {"attention": 50, "memory": 50, "logic": 50},
+                    "note": "", "createdAt": timestamp, "registrationSource": "self-service",
+                }
+                database.execute(
+                    "INSERT INTO children(child_id,status,payload,created_at,updated_at) VALUES(?,?,?,?,?)",
+                    (child_id, child["status"], json.dumps(child, ensure_ascii=False), timestamp, timestamp),
+                )
+                scope = "guardian"
+                database.execute(
+                    "INSERT INTO user_child_bindings(binding_id,user_id,child_id,scope,status,valid_from,valid_to) VALUES(?,?,?,?, 'active',?,NULL)",
+                    ("BIND-" + uuid.uuid4().hex, phone, child_id, scope, timestamp[:10]),
+                )
+            append_audit(
+                database,
+                {"user_id": phone, "display_name": display_name, "role": role},
+                "SELF_REGISTRATION_SUBMITTED" if role == "teacher" else "SELF_REGISTRATION_COMPLETED",
+                "account", opaque_ref(phone, "ACCOUNT"),
+                {"role": role, "status": "pending" if role == "teacher" else "active", "childId": child_id},
+            )
+        message = "注册申请已提交，请等待已认证的康复专业人员启用" if role == "teacher" else "注册成功，请登录"
+        self.json_response(201, {"registered": True, "status": "pending" if role == "teacher" else "active", "message": message})
+
 
     def logout(self) -> None:
         self.authenticated_user()
@@ -392,25 +521,8 @@ class ApiHandler(SimpleHTTPRequestHandler):
         self.json_response(200, {"loggedOut": True})
 
     def send_bootstrap(self) -> None:
-        role = self.require("session:read")
+        self.require("session:read")
         user = self.authenticated_user()
-        if role == "admin":
-            with connect() as database:
-                children_count = database.execute("SELECT COUNT(*) n FROM children").fetchone()["n"]
-                training_count = database.execute("SELECT COUNT(*) n FROM training_records WHERE COALESCE(json_extract(payload,'$.source'),'')<>'baseline-game'").fetchone()["n"]
-            self.json_response(200, {
-                "user": public_user(user),
-                "authorizedChildIds": [],
-                "children": [],
-                "trainingRecords": [],
-                "abilityProfiles": [],
-                "aiInferences": [],
-                "assessments": [],
-                "careRecords": [],
-                "safetyFlags": [],
-                "anonymousSummary": {"children": children_count, "trainingRecords": training_count},
-            })
-            return
         child_ids = self.authorized_child_ids()
         if not child_ids:
             self.json_response(200, {
@@ -440,6 +552,55 @@ class ApiHandler(SimpleHTTPRequestHandler):
             "careRecords": decode_rows(care_rows),
             "safetyFlags": decode_rows(safety_rows),
         })
+
+    def list_available_patients(self) -> None:
+        user = self.authenticated_user()
+        if user["role"] != "teacher":
+            raise PermissionError("只有康复专业人员可以选择患者")
+        with connect() as database:
+            rows = database.execute(
+                """SELECT c.child_id,c.payload,
+                          (SELECT u.phone FROM user_child_bindings b JOIN app_users u ON u.phone=b.user_id WHERE b.child_id=c.child_id AND b.scope='guardian' AND b.status='active' LIMIT 1) family_phone,
+                          (SELECT u.display_name FROM user_child_bindings b JOIN app_users u ON u.phone=b.user_id WHERE b.child_id=c.child_id AND b.scope='guardian' AND b.status='active' LIMIT 1) family_name
+                   FROM children c WHERE c.status IN ('active','在训') ORDER BY c.created_at"""
+            ).fetchall()
+            assigned = set(self.authorized_child_ids())
+        patients = []
+        for row in rows:
+            child = json.loads(row["payload"])
+            patients.append({
+                "childId": row["child_id"],
+                "childName": child.get("name", "未命名儿童"),
+                "birthYear": child.get("birthYear"),
+                "familyPhone": row["family_phone"],
+                "familyName": row["family_name"],
+                "selected": row["child_id"] in assigned,
+            })
+        self.json_response(200, {"patients": patients})
+
+    def update_patient_selection(self, data: dict) -> None:
+        user = self.authenticated_user()
+        if user["role"] != "teacher":
+            raise PermissionError("只有康复专业人员可以选择患者")
+        raw_ids = data.get("childIds")
+        if not isinstance(raw_ids, list):
+            raise ValueError("患者列表格式不正确")
+        child_ids = {str(child_id) for child_id in raw_ids if str(child_id)}
+        with connect() as database:
+            existing = {row["child_id"] for row in database.execute("SELECT child_id FROM children").fetchall()}
+            if not child_ids.issubset(existing):
+                raise ValueError("患者账号不存在")
+            timestamp = utc_now()
+            database.execute("UPDATE user_child_bindings SET status='revoked' WHERE user_id=? AND scope='rehabilitation-medical'", (user["user_id"],))
+            for child_id in child_ids:
+                database.execute(
+                    """INSERT INTO user_child_bindings(binding_id,user_id,child_id,scope,status,valid_from,valid_to) VALUES(?,?,?,'rehabilitation-medical','active',?,NULL)
+                       ON CONFLICT(user_id,child_id,scope) DO UPDATE SET status='active',valid_from=excluded.valid_from,valid_to=NULL""",
+                    ("BIND-" + uuid.uuid4().hex, user["user_id"], child_id, timestamp[:10]),
+                )
+            append_audit(database, user, "PATIENT_SELECTION_UPDATED", "account", opaque_ref(user["user_id"], "ACCOUNT"), {"patientCount": len(child_ids)})
+        self.json_response(200, {"saved": True, "authorizedChildIds": sorted(child_ids)})
+
 
     def admin_content(self) -> None:
         self.require("content:review")
@@ -523,12 +684,16 @@ class ApiHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         if parsed.path == "/api/health":
-            with connect() as database:
-                setup_required = database.execute("SELECT 1 FROM app_users LIMIT 1").fetchone() is None
-            self.json_response(200, {"ok": True, "storage": "sqlite", "accountSetupRequired": setup_required, "aiModel": OLLAMA_MODEL, "ocr": {"available": True, "mode": "isolated-process"}})
+            self.json_response(200, {"ok": True, "storage": "sqlite", "accountSetupRequired": False, "aiModel": OLLAMA_MODEL, "ocr": {"available": True, "mode": "isolated-process"}})
             return
         if parsed.path == "/api/bootstrap":
             self.send_bootstrap()
+            return
+        if parsed.path == "/api/patients":
+            try:
+                self.list_available_patients()
+            except PermissionError as error:
+                self.json_response(403, {"error": str(error)})
             return
         admin_routes = {
             "/api/admin/content": self.admin_content, "/api/admin/organizations": self.admin_organizations,
@@ -650,8 +815,8 @@ class ApiHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         try:
             path = urlparse(self.path).path
-            if path == "/api/auth/bootstrap-admin":
-                self.bootstrap_admin(self.read_json()); return
+            if path == "/api/auth/register":
+                self.register_account(self.read_json()); return
             if path == "/api/auth/login":
                 self.login(self.read_json()); return
             if path == "/api/auth/logout":
@@ -659,6 +824,7 @@ class ApiHandler(SimpleHTTPRequestHandler):
             if path == "/api/imports/batches":
                 self.create_import_batch(self.read_pdf_uploads()); return
             routes = {
+                "/api/patients": self.update_patient_selection,
                 "/api/children": self.save_child,
                 "/api/training-records": self.save_training_records,
                 "/api/safety-flags": self.save_safety_flag,
@@ -739,7 +905,7 @@ class ApiHandler(SimpleHTTPRequestHandler):
 
     def manage_content(self, data: dict) -> None:
         action = str(data.get("action", "save-draft")); permission = "content:publish" if action in {"publish", "rollback"} else "content:review"
-        user = self.require_admin_confirmation(data, permission); timestamp = utc_now()
+        user = self.require_privileged_confirmation(data, permission); timestamp = utc_now()
         with connect() as database:
             if action == "save-draft":
                 content = data.get("content") if isinstance(data.get("content"), dict) else {}
@@ -787,7 +953,7 @@ class ApiHandler(SimpleHTTPRequestHandler):
         raise ValueError("不支持的内容操作")
 
     def manage_organization(self, data: dict) -> None:
-        user = self.require_admin_confirmation(data, "organization:manage"); action = str(data.get("action", "")); timestamp = utc_now()
+        user = self.require_privileged_confirmation(data, "organization:manage"); action = str(data.get("action", "")); timestamp = utc_now()
         with connect() as database:
             if action == "create-organization":
                 name = str(data.get("name", "")).strip()
@@ -807,7 +973,7 @@ class ApiHandler(SimpleHTTPRequestHandler):
         self.json_response(200, {"saved": True})
 
     def manage_account(self, data: dict) -> None:
-        user = self.require_admin_confirmation(data, "account:manage"); action = str(data.get("action", "")); timestamp = utc_now()
+        user = self.require_privileged_confirmation(data, "account:manage"); action = str(data.get("action", "")); timestamp = utc_now()
         with connect() as database:
             if action == "create":
                 role = str(data.get("role", "")); display_name = str(data.get("displayName", "")).strip(); target = normalize_phone(data.get("phone")); new_password = validate_password(data.get("newPassword"))
@@ -815,13 +981,14 @@ class ApiHandler(SimpleHTTPRequestHandler):
                 if database.execute("SELECT 1 FROM app_users WHERE phone=?", (target,)).fetchone(): raise ValueError("该手机号已注册")
                 salt = secrets.token_hex(16)
                 database.execute("INSERT INTO app_users(phone,role,display_name,password_salt,password_hash,password_iterations,status,created_at,updated_at,password_changed_at) VALUES(?,?,?,?,?,?,'active',?,?,?)", (target, role, display_name, salt, password_digest(new_password, salt), PASSWORD_ITERATIONS, timestamp, timestamp, timestamp))
+                database.execute("INSERT INTO account_roles(user_id,role_code) VALUES(?,?)", (target, role))
             elif action == "reset-password":
                 target = normalize_phone(data.get("phone") or data.get("userId")); new_password = validate_password(data.get("newPassword"))
                 if not database.execute("SELECT 1 FROM app_users WHERE phone=?", (target,)).fetchone(): raise ValueError("账号不存在")
                 salt = secrets.token_hex(16); database.execute("UPDATE app_users SET password_salt=?,password_hash=?,password_iterations=?,password_changed_at=?,updated_at=? WHERE phone=?", (salt, password_digest(new_password, salt), PASSWORD_ITERATIONS, timestamp, timestamp, target)); database.execute("DELETE FROM auth_sessions WHERE user_id=?", (target,))
             elif action == "set-status":
                 target = normalize_phone(data.get("phone") or data.get("userId")); status = str(data.get("status", ""))
-                if target == user["user_id"] and status != "active": raise ValueError("不能停用当前管理员账号")
+                if target == user["user_id"] and status != "active": raise ValueError("不能停用当前康复专业人员账号")
                 if status not in {"active", "disabled"}: raise ValueError("账号状态不支持")
                 if not database.execute("SELECT 1 FROM app_users WHERE phone=?", (target,)).fetchone(): raise ValueError("账号不存在")
                 database.execute("UPDATE app_users SET status=?,updated_at=? WHERE phone=?", (status, timestamp, target))
@@ -831,7 +998,7 @@ class ApiHandler(SimpleHTTPRequestHandler):
             elif action == "binding-upsert":
                 target = normalize_phone(data.get("phone") or data.get("userId")); child_id = self.child_id_from_ref(database, str(data.get("childRef", ""))); scope = str(data.get("scope", "authorized")); valid_to = str(data.get("validTo", "")).strip() or None
                 account = database.execute("SELECT role FROM app_users WHERE phone=?", (target,)).fetchone()
-                if not account or account["role"] == "admin": raise ValueError("管理员不能绑定儿童临床数据")
+                if not account: raise ValueError("账号不存在")
                 expected_scope = {"child": "self", "parent": "guardian", "teacher": "rehabilitation-medical"}[account["role"]]
                 if scope != expected_scope: raise PermissionError("授权范围与账号角色不匹配")
                 if valid_to and valid_to < timestamp[:10]: raise ValueError("授权截止日期不能早于今天")
@@ -845,7 +1012,7 @@ class ApiHandler(SimpleHTTPRequestHandler):
         self.json_response(200, {"saved": True})
 
     def manage_governance(self, data: dict) -> None:
-        user = self.require_admin_confirmation(data, "consent:govern"); request_id = str(data.get("requestId", "")); status = str(data.get("status", "")); note = str(data.get("resolutionNote", "")).strip()
+        user = self.require_privileged_confirmation(data, "consent:govern"); request_id = str(data.get("requestId", "")); status = str(data.get("status", "")); note = str(data.get("resolutionNote", "")).strip()
         if status not in {"processing", "completed", "rejected"} or not note: raise ValueError("请选择处理状态并填写处理依据")
         with connect() as database:
             row = database.execute("SELECT request_id FROM data_requests WHERE request_id=?", (request_id,)).fetchone()
@@ -855,7 +1022,7 @@ class ApiHandler(SimpleHTTPRequestHandler):
         self.json_response(200, {"saved": True})
 
     def manage_sharing(self, data: dict) -> None:
-        user = self.require_admin_confirmation(data, "sharing:manage"); action = str(data.get("action", "create")); timestamp = utc_now()
+        user = self.require_privileged_confirmation(data, "sharing:manage"); action = str(data.get("action", "create")); timestamp = utc_now()
         with connect() as database:
             if action == "create":
                 organization = str(data.get("targetOrganization", "")).strip(); scopes = [item for item in data.get("scope", []) if item in {"training-summary", "content-library", "service-coordination"}]; valid_to = str(data.get("validTo", ""))
@@ -868,7 +1035,7 @@ class ApiHandler(SimpleHTTPRequestHandler):
         self.json_response(200, {"saved": True})
 
     def manage_backup(self, data: dict) -> None:
-        user = self.require_admin_confirmation(data, "backup:manage"); action = str(data.get("action", "create")); BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        user = self.require_privileged_confirmation(data, "backup:manage"); action = str(data.get("action", "create")); BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         if action == "create":
             backup_id = "BACKUP-" + uuid.uuid4().hex; file_name = backup_id + ".sqlite3"; path = BACKUP_DIR / file_name
             source = connect(); target = sqlite3.connect(path)
@@ -1310,4 +1477,7 @@ if __name__ == "__main__":
     if server is None:
         raise SystemExit(f"{requested_port}-{requested_port + 9} 端口均被占用，请设置 QIZHI_PORT 后重试")
     print(f"启智训练台：http://127.0.0.1:{server.server_port}\nSQLite：{DATABASE_FILE}")
+    if os.environ.get("QIZHI_OPEN_BROWSER") == "1":
+        page_url = f"http://127.0.0.1:{server.server_port}/?v=20260910"
+        threading.Timer(0.35, webbrowser.open, args=(page_url,)).start()
     server.serve_forever()

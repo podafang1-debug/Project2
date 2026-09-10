@@ -123,7 +123,7 @@ renderReport=function(c){
     return;
   }
   if(currentRole==='parent'||currentRole==='teacher')c.appendChild(rubricInterestCard(activeChild));
-  if(currentRole==='admin'){
+  if(currentRole==='teacher'){
     const minutes=enhancedState.practiceLogs.reduce((sum,item)=>sum+(item.minutes||0),0),withEvidence=enhancedState.practiceLogs.filter(item=>item.evidenceType!=='none'&&item.evidenceRef).length;
     const card=document.createElement('div');card.className='card practice-summary-card';card.innerHTML='<b>实践过程脱敏汇总</b><div class="practice-kpis"><article><b>'+enhancedState.practiceLogs.length+'</b><small>真实活动</small></article><article><b>'+Math.round(minutes/60*10)/10+'</b><small>实践小时</small></article><article><b>'+withEvidence+'</b><small>证据已登记</small></article></div><p>演示模拟数据不会计入实践活动。</p>';c.appendChild(card);
   }
@@ -148,9 +148,9 @@ function openRubricPracticePanel(mode){
 
 const rubricRenderSetting=renderSetting;
 renderSetting=function(c){
-  rubricRenderSetting(c);if(currentRole!=='teacher'&&currentRole!=='admin')return;
+  rubricRenderSetting(c);if(currentRole!=='teacher')return;
   const grid=c.querySelector('.ops-grid');if(!grid)return;
-  const button=document.createElement('button');button.className='ops-card rubric-practice-entry';button.dataset.rubricPractice=currentRole==='admin'?'overview':'record';
-  button.innerHTML='<b>'+(currentRole==='admin'?'实践过程总览':'真实实践记录')+'</b><small>'+(currentRole==='admin'?'查看时长、覆盖人次和证据完整度':'记录真实场景、研究方法、时长和原始证据')+'</small>';
+  const button=document.createElement('button');button.className='ops-card rubric-practice-entry';button.dataset.rubricPractice='record';
+  button.innerHTML='<b>真实实践记录</b><small>记录真实场景、研究方法、时长和原始证据</small>';
   grid.prepend(button);button.onclick=()=>openRubricPracticePanel(button.dataset.rubricPractice);
 };

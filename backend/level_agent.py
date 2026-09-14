@@ -1,12 +1,14 @@
 """儿童端 20 关课程编排 Agent。
 
-默认使用可复现的本地规则；显式启用 CrewAI 时，可调用本地 Ollama 或已配置的外部
-模型。传给模型的内容只包含去标识化能力特征，任何无效输出都会回退到本地方案。
+默认启用 CrewAI，并优先调用随便携版提供的本地 Ollama；模型不可用或输出不合规时，
+自动回退到可复现的本地规则。传给模型的内容只包含去标识化能力特征。
 """
 from __future__ import annotations
 
 import json
 import os
+import urllib.error
+import urllib.request
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -179,21 +181,67 @@ def _valid_model_result(result: Any, context: CurriculumContext) -> bool:
 
 
 def _crewai_curriculum(context: CurriculumContext, fallback: dict[str, Any]) -> dict[str, Any] | None:
-    if os.getenv("LEVEL_AGENT_CREWAI", "0") != "1":
+    if os.getenv("LEVEL_AGENT_CREWAI", "1") != "1":
         return None
     try:
-        from crewai import Agent, Crew, LLM, Process, Task  # type: ignore
+        from crewai import Agent, Crew, Process, Task  # type: ignore
+        from crewai.llms.base_llm import BaseLLM  # type: ignore
     except ImportError:
         return None
-    model = os.getenv("LEVEL_AGENT_MODEL", "ollama/qwen3:4b")
-    kwargs: dict[str, Any] = {"model": model, "temperature": 0.2}
-    if os.getenv("LEVEL_AGENT_BASE_URL"):
-        kwargs["base_url"] = os.environ["LEVEL_AGENT_BASE_URL"]
+
+    class LocalOllamaLLM(BaseLLM):
+        """CrewAI 的本地 Ollama 适配器，不经过 LiteLLM 或云端代理。"""
+
+        provider: str = "ollama"
+        llm_type: str = "ollama-local"
+
+        def call(self, messages: Any, tools: Any = None, callbacks: Any = None,
+                 available_functions: Any = None, from_task: Any = None,
+                 from_agent: Any = None, response_model: Any = None) -> str:
+            source = messages if isinstance(messages, list) else [{"role": "user", "content": str(messages)}]
+            normalized = []
+            for item in source:
+                if isinstance(item, dict):
+                    role, content = item.get("role", "user"), item.get("content", "")
+                else:
+                    role = getattr(item, "role", "user")
+                    content = getattr(item, "content", str(item))
+                if not isinstance(content, str):
+                    content = json.dumps(content, ensure_ascii=False)
+                normalized.append({"role": str(role), "content": content})
+            endpoint = (self.base_url or "http://127.0.0.1:11434").rstrip("/") + "/api/chat"
+            request = urllib.request.Request(
+                endpoint,
+                data=json.dumps({
+                    "model": self.model, "messages": normalized, "stream": False,
+                    "options": {"temperature": self.temperature or 0.2},
+                }, ensure_ascii=False).encode("utf-8"),
+                headers={"Content-Type": "application/json"}, method="POST",
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=120) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+                raise RuntimeError(f"本地 Ollama 调用失败: {error}") from error
+            content = (payload.get("message") or {}).get("content")
+            if not isinstance(content, str) or not content.strip():
+                raise RuntimeError("本地 Ollama 未返回有效文本")
+            return content
+
+        def supports_function_calling(self) -> bool:
+            return False
+
+    configured_model = os.getenv("LEVEL_AGENT_MODEL", "ollama/qwen3:0.6b")
+    model = configured_model.removeprefix("ollama/")
+    llm = LocalOllamaLLM(
+        model=model, temperature=0.2,
+        base_url=os.getenv("LEVEL_AGENT_BASE_URL", "http://127.0.0.1:11434"),
+    )
     agent = Agent(
         role="儿童认知训练课程编排员",
         goal="在不改变审核题目内容的前提下，编排渐进、多形式且尊重儿童选择的20关课程",
         backstory="只处理去标识化训练特征，禁止诊断，禁止添加不存在的训练模块。",
-        llm=LLM(**kwargs), verbose=False, allow_delegation=False,
+        llm=llm, verbose=False, allow_delegation=False,
     )
     prompt = {
         "anonymousFeatures": context.anonymized(), "allowedModules": MODULES,
@@ -210,7 +258,7 @@ def _crewai_curriculum(context: CurriculumContext, fallback: dict[str, Any]) -> 
         result = json.loads(raw[raw.find("{"):raw.rfind("}") + 1])
         if not _valid_model_result(result, context):
             return None
-        result["generatedBy"] = {"provider": "crewai", "model": model, "fallback": False}
+        result["generatedBy"] = {"provider": "crewai-local-ollama", "model": model, "fallback": False}
         result.setdefault("extension", fallback["extension"]); result.setdefault("notice", fallback["notice"])
         return result
     except Exception:
@@ -224,6 +272,6 @@ def build_curriculum(profile: dict | None, child: dict | None, assessments: list
     generated = _crewai_curriculum(context, fallback)
     if generated:
         return generated
-    if os.getenv("LEVEL_AGENT_CREWAI", "0") == "1":
+    if os.getenv("LEVEL_AGENT_CREWAI", "1") == "1":
         fallback["generatedBy"]["fallback"] = True
     return fallback

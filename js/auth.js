@@ -29,7 +29,10 @@ $("#loginBtn").onclick=doLogin;
 function setRegistrationRole(){
   const role=$("#registerRole").value,isTeacher=role==="teacher";
   $("#registerChildFields").classList.toggle("hidden",isTeacher);
+  const firstTeacher=isTeacher&&BACKEND_API.teacherBootstrapRequired;
+  $("#teacherBootstrapField").classList.toggle("hidden",!firstTeacher);
   $("#teacherRegisterNote").classList.toggle("hidden",!isTeacher);
+  $("#teacherRegisterNote").textContent=firstTeacher?"请输入服务启动窗口显示的初始化码。":"注册后需由已认证的康复专业人员审核启用。";
 }
 function showRegistration(){
   if(!BACKEND_API.available){showLoginMessage("请先启动机构服务");return;}
@@ -55,16 +58,18 @@ async function registerAccount(){
   if(password!==confirm){showLoginMessage("两次输入的密码不一致");return;}
   const payload={role,displayName,phone,password};
   if(role==="parent"){payload.birthYear=+$("#registerBirthYear").value;payload.childDisplayName=$("#registerChildName").value.trim();}
+  if(role==="teacher"&&BACKEND_API.teacherBootstrapRequired)payload.bootstrapCode=$("#teacherBootstrapCode").value.trim();
   const button=$("#registerAccountBtn");button.disabled=true;button.textContent="正在注册…";showLoginMessage("");
   try{
     const result=await backendRequest("/api/auth/register",{method:"POST",body:JSON.stringify(payload)},false);
+    if(result.teacherBootstrapCompleted)BACKEND_API.teacherBootstrapRequired=false;
     if(result.status==="pending"){
       pickRole='teacher';$('[data-login-role="teacher"]').click();showAccountLogin();showLoginMessage(result.message,"success");return;
     }
     pickRole=role;$('[data-login-role="'+role+'"]').click();
     $("#phoneInput").value=phone;$("#passwordInput").value='';
     showAccountLogin();showLoginMessage("注册成功，请使用刚才设置的密码登录。","success");
-  }catch(error){showLoginMessage(error.message||"注册失败，请重试");}
+  }catch(error){if(String(error.message).includes("首次初始化码")){BACKEND_API.teacherBootstrapRequired=true;setRegistrationRole();}showLoginMessage(error.message||"注册失败，请重试");}
   finally{button.disabled=false;button.textContent="注册";}
 }
 

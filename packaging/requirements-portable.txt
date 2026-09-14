@@ -1,0 +1,3 @@
+-r ../backend/requirements-ocr.txt
+crewai==1.15.21
+pyinstaller==6.14.1

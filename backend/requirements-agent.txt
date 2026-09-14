@@ -1,3 +1,3 @@
-# 可选依赖。默认规则 Agent 不需要安装任何第三方包。
-# 设置 LEVEL_AGENT_CREWAI=1 后才会启用，可选本地 Ollama 或外部兼容模型。
-crewai>=0.175
+# AI Agent 默认启用；本地 Ollama 不可用时自动回退到规则方案。
+# 使用自定义 CrewAI BaseLLM 直接访问本机 Ollama，不引入 LiteLLM。
+crewai>=1.15,<2

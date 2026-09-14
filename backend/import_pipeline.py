@@ -19,7 +19,7 @@ import numpy as np
 from cryptography.fernet import Fernet
 from rapidocr_onnxruntime import RapidOCR
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(sys.executable).resolve().parent / "backend" if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 PRIVATE_DIR = BASE_DIR / "private_documents"
 KEY_FILE = BASE_DIR / ".document_key"
 
@@ -202,7 +202,10 @@ def start_batch_process(database_file: Path, batch_id: str, connect: Callable[[]
     log_dir = BASE_DIR / "ocr_logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{batch_id}.log"
-    command = [sys.executable, str(BASE_DIR / "ocr_worker.py"), "--database", str(database_file), "--batch", batch_id]
+    command = ([sys.executable, "--ocr-worker"] if getattr(sys, "frozen", False) else [
+        sys.executable, str(BASE_DIR / "ocr_worker.py")
+    ])
+    command.extend(["--database", str(database_file), "--batch", batch_id])
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     with log_path.open("ab") as log_file:
         worker = subprocess.Popen(

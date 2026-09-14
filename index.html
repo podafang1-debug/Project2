@@ -34,6 +34,7 @@
     <div id="accountRegisterForm" class="hidden">
       <h2>注册账号</h2>
       <div class="field"><label for="registerRole">注册身份</label><select id="registerRole"><option value="parent">家长</option><option value="teacher">康复专业人员</option></select></div>
+      <div class="field hidden" id="teacherBootstrapField"><label for="teacherBootstrapCode">首次初始化码</label><input id="teacherBootstrapCode" maxlength="64" autocomplete="one-time-code" placeholder="查看服务启动窗口"></div>
       <div class="field"><label for="registerName">姓名或称呼</label><input id="registerName" maxlength="40" autocomplete="name"></div>
       <div id="registerChildFields">
         <div class="field parent-child-name"><label for="registerChildName">儿童称呼</label><input id="registerChildName" maxlength="30"></div>
@@ -100,7 +101,7 @@
   <script src="js/storage.js"></script>
   <script src="js/config.js?v=20260910a"></script>
   <script src="js/ai.js"></script>
-  <script src="js/auth.js?v=20260910a"></script>
+  <script src="js/auth.js?v=20260910b"></script>
   <script src="js/app.js"></script>
   <script src="js/children.js"></script>
   <script src="js/training.js"></script>
@@ -112,7 +113,7 @@
   <script src="js/modal.js"></script>
   <script src="js/database.js?v=20260910a"></script>
   <script src="js/enhanced.js?v=20260910a"></script>
-  <script src="js/backend-api.js?v=20260910a"></script>
+  <script src="js/backend-api.js?v=20260910b"></script>
   <script src="js/admin-governance.js?v=20260910a"></script>
   <script src="js/profile-ai.js"></script>
   <script src="js/onboarding-assessment.js?v=20260907d"></script>

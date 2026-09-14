@@ -1,5 +1,6 @@
 """使用临时数据库验证 Agent 接口、审批和儿童题目读取权限。"""
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -11,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
+os.environ.setdefault("QIZHI_SEED_DEMO_ACCOUNTS", "1")
 import server  # noqa: E402
 from import_pipeline import encrypt_text  # noqa: E402
 

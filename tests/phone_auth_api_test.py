@@ -1,5 +1,6 @@
 """验证家庭共享账号、三角色登录、专业账号审核与患者选择。"""
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -10,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
+os.environ.setdefault("QIZHI_SEED_DEMO_ACCOUNTS", "1")
 import server  # noqa: E402
 
 

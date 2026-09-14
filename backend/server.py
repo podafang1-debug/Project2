@@ -16,6 +16,7 @@ import os
 import secrets
 import socket
 import sqlite3
+import sys
 import threading
 import uuid
 import urllib.error
@@ -27,9 +28,11 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATABASE_FILE = Path(__file__).resolve().parent / "training_platform.db"
-BACKUP_DIR = Path(__file__).resolve().parent / "backups"
+FROZEN_RUNTIME = bool(getattr(sys, "frozen", False))
+PROJECT_ROOT = Path(sys.executable).resolve().parent if FROZEN_RUNTIME else Path(__file__).resolve().parent.parent
+BACKEND_DIR = PROJECT_ROOT / "backend" if FROZEN_RUNTIME else Path(__file__).resolve().parent
+DATABASE_FILE = BACKEND_DIR / "training_platform.db"
+BACKUP_DIR = BACKEND_DIR / "backups"
 OLLAMA_URL = "http://127.0.0.1:11434/api/chat"
 OLLAMA_MODEL = "qwen3:0.6b"
 DOMAINS = {"A", "B", "C", "D", "E", "F"}
@@ -50,8 +53,12 @@ ROLE_ACTIONS = {
 
 SESSION_HOURS = 12
 PASSWORD_ITERATIONS = 310_000
+TEACHER_BOOTSTRAP_LOCK = threading.Lock()
+TEACHER_BOOTSTRAP_CODE = ""
+TEACHER_BOOTSTRAP_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 LEGACY_DEMO_USER_IDS = {"user_child", "user_parent", "user_teacher", "user_admin", "user_doctor", "user_reviewer"}
 ROLE_NAMES = {"child": "儿童", "parent": "家长", "teacher": "康复专业人员"}
+SEED_DEMO_ACCOUNTS = os.environ.get("QIZHI_SEED_DEMO_ACCOUNTS", "") == "1"
 
 
 def utc_now() -> str:
@@ -100,13 +107,14 @@ def connect() -> sqlite3.Connection:
 
 
 def initialise_database() -> None:
-    schema = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
+    schema = (BACKEND_DIR / "schema.sql").read_text(encoding="utf-8")
     with connect() as database:
         migrate_legacy_identity_schema(database)
         database.executescript(schema)
         migrate_role_model(database)
         sync_permission_catalog(database)
-        seed_reference_data(database)
+        if os.environ.get("QIZHI_SEED_DEMO_DATA") == "1":
+            seed_reference_data(database)
         database.execute("PRAGMA optimize")
 
 
@@ -133,8 +141,46 @@ def password_digest(password: str, salt: str, iterations: int = PASSWORD_ITERATI
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), iterations).hex()
 
 
+def has_active_teacher(database: sqlite3.Connection) -> bool:
+    return database.execute(
+        "SELECT 1 FROM app_users WHERE role='teacher' AND status='active' LIMIT 1"
+    ).fetchone() is not None
+
+
+def ensure_teacher_bootstrap_code(database: sqlite3.Connection) -> str:
+    global TEACHER_BOOTSTRAP_CODE
+    if has_active_teacher(database):
+        return ""
+    with TEACHER_BOOTSTRAP_LOCK:
+        if not TEACHER_BOOTSTRAP_CODE:
+            configured = os.environ.get("QIZHI_TEACHER_BOOTSTRAP_CODE", "").strip().upper()
+            if configured and (len(configured) < 8 or len(configured) > 64):
+                raise RuntimeError("QIZHI_TEACHER_BOOTSTRAP_CODE must contain 8-64 characters")
+            TEACHER_BOOTSTRAP_CODE = configured or "".join(
+                secrets.choice(TEACHER_BOOTSTRAP_ALPHABET) for _ in range(10)
+            )
+            print(f"首次康复专业人员初始化码：{TEACHER_BOOTSTRAP_CODE}")
+        return TEACHER_BOOTSTRAP_CODE
+
+
+def teacher_bootstrap_required() -> bool:
+    with connect() as database:
+        required = not has_active_teacher(database)
+        if required:
+            ensure_teacher_bootstrap_code(database)
+        return required
+
+
+def clear_teacher_bootstrap_code() -> None:
+    global TEACHER_BOOTSTRAP_CODE
+    with TEACHER_BOOTSTRAP_LOCK:
+        TEACHER_BOOTSTRAP_CODE = ""
+
+
 def seed_demo_role_accounts(database: sqlite3.Connection) -> None:
     """补齐一个家庭共享账号和一个康复专业人员示例账号。"""
+    if not SEED_DEMO_ACCOUNTS:
+        return
     timestamp = utc_now()
     accounts = (
         ("13600000001", "teacher", "示例康复专业人员", "Teacher2026!"),
@@ -460,11 +506,23 @@ class ApiHandler(SimpleHTTPRequestHandler):
         if not display_name or len(display_name) > 40:
             raise ValueError("请填写 1–40 个字符的姓名或称呼")
         timestamp = utc_now()
+        first_teacher = False
         with connect() as database:
             database.execute("BEGIN IMMEDIATE")
             if database.execute("SELECT 1 FROM app_users WHERE phone=?", (phone,)).fetchone():
                 raise ValueError("该手机号已注册")
-            account_status = "disabled" if role == "teacher" else "active"
+            if role == "teacher":
+                if has_active_teacher(database):
+                    account_status = "disabled"
+                else:
+                    expected_code = ensure_teacher_bootstrap_code(database)
+                    supplied_code = str(data.get("bootstrapCode", "")).strip().upper()
+                    if not supplied_code or not hmac.compare_digest(supplied_code, expected_code):
+                        raise ValueError("\u8bf7\u8f93\u5165\u670d\u52a1\u542f\u52a8\u7a97\u53e3\u663e\u793a\u7684\u9996\u6b21\u521d\u59cb\u5316\u7801")
+                    account_status = "active"
+                    first_teacher = True
+            else:
+                account_status = "active"
             salt = secrets.token_hex(16)
             database.execute(
                 "INSERT INTO app_users(phone,role,display_name,password_salt,password_hash,password_iterations,status,created_at,updated_at,password_changed_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -506,12 +564,15 @@ class ApiHandler(SimpleHTTPRequestHandler):
             append_audit(
                 database,
                 {"user_id": phone, "display_name": display_name, "role": role},
-                "SELF_REGISTRATION_SUBMITTED" if role == "teacher" else "SELF_REGISTRATION_COMPLETED",
+                "SELF_REGISTRATION_SUBMITTED" if account_status == "disabled" else "SELF_REGISTRATION_COMPLETED",
                 "account", opaque_ref(phone, "ACCOUNT"),
-                {"role": role, "status": "pending" if role == "teacher" else "active", "childId": child_id},
+                {"role": role, "status": "pending" if account_status == "disabled" else "active", "childId": child_id},
             )
-        message = "注册申请已提交，请等待已认证的康复专业人员启用" if role == "teacher" else "注册成功，请登录"
-        self.json_response(201, {"registered": True, "status": "pending" if role == "teacher" else "active", "message": message})
+        if first_teacher:
+            clear_teacher_bootstrap_code()
+        message = "注册申请已提交，请等待已认证的康复专业人员启用" if account_status == "disabled" else "注册成功，请登录"
+        self.json_response(201, {"registered": True, "status": "pending" if account_status == "disabled" else "active", "message": message,
+                                 "teacherBootstrapCompleted": first_teacher})
 
 
     def logout(self) -> None:
@@ -528,7 +589,7 @@ class ApiHandler(SimpleHTTPRequestHandler):
             self.json_response(200, {
                 "user": public_user(user),
                 "authorizedChildIds": [], "children": [], "trainingRecords": [], "abilityProfiles": [],
-                "aiInferences": [], "assessments": [], "careRecords": [], "safetyFlags": [],
+                "aiInferences": [], "assessments": [], "interventionLogs": [], "careRecords": [], "safetyFlags": [],
             })
             return
         placeholders = ",".join("?" for _ in child_ids)
@@ -539,6 +600,7 @@ class ApiHandler(SimpleHTTPRequestHandler):
             inference_rows = database.execute(f"""SELECT i.payload FROM ai_inferences i JOIN ability_profiles p ON p.profile_id=i.profile_id
                                                   WHERE p.child_id IN ({placeholders}) ORDER BY i.created_at""", child_ids).fetchall()
             assessment_rows = database.execute(f"SELECT payload FROM assessments WHERE child_id IN ({placeholders}) ORDER BY created_at", child_ids).fetchall()
+            intervention_rows = database.execute(f"SELECT payload FROM intervention_logs WHERE child_id IN ({placeholders}) ORDER BY created_at", child_ids).fetchall()
             care_rows = database.execute(f"SELECT payload FROM care_records WHERE child_id IN ({placeholders}) ORDER BY created_at", child_ids).fetchall()
             safety_rows = database.execute(f"SELECT payload FROM safety_flags WHERE child_id IN ({placeholders}) ORDER BY created_at", child_ids).fetchall()
         self.json_response(200, {
@@ -549,6 +611,7 @@ class ApiHandler(SimpleHTTPRequestHandler):
             "abilityProfiles": decode_rows(profile_rows),
             "aiInferences": decode_rows(inference_rows),
             "assessments": decode_rows(assessment_rows),
+            "interventionLogs": decode_rows(intervention_rows),
             "careRecords": decode_rows(care_rows),
             "safetyFlags": decode_rows(safety_rows),
         })
@@ -684,7 +747,8 @@ class ApiHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         if parsed.path == "/api/health":
-            self.json_response(200, {"ok": True, "storage": "sqlite", "accountSetupRequired": False, "aiModel": OLLAMA_MODEL, "ocr": {"available": True, "mode": "isolated-process"}})
+            self.json_response(200, {"ok": True, "storage": "sqlite", "accountSetupRequired": False,
+                                     "teacherBootstrapRequired": teacher_bootstrap_required(), "aiModel": OLLAMA_MODEL, "ocr": {"available": True, "mode": "isolated-process"}})
             return
         if parsed.path == "/api/bootstrap":
             self.send_bootstrap()
@@ -1451,7 +1515,15 @@ class ApiHandler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    if FROZEN_RUNTIME and "--ocr-worker" in sys.argv:
+        sys.argv.remove("--ocr-worker")
+        from ocr_worker import main as run_ocr_worker
+        run_ocr_worker()
+        raise SystemExit(0)
     initialise_database()
+    with connect() as database:
+        if not has_active_teacher(database):
+            ensure_teacher_bootstrap_code(database)
     # 启动时恢复上次因关机/关闭终端而中断的识别任务；已完成页面不会重复识别。
     from import_pipeline import start_batch_process
     with connect() as database:

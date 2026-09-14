@@ -3,7 +3,7 @@
  * 本地 Python 服务启用数据库会话和 SQLite 主数据；公开静态演示只保留浏览器临时数据。
  */
 const BACKEND_TOKEN_KEY='qizhi_backend_token';
-const BACKEND_API={available:false,storage:'browser',token:sessionStorage.getItem(BACKEND_TOKEN_KEY)||'',user:null,authorizedChildIds:[],anonymousSummary:null,accountSetupRequired:false};
+const BACKEND_API={available:false,storage:'browser',token:sessionStorage.getItem(BACKEND_TOKEN_KEY)||'',user:null,authorizedChildIds:[],anonymousSummary:null,accountSetupRequired:false,teacherBootstrapRequired:false,lastSyncSignature:'',syncing:false};
 async function detectBackend(){
   try{
     const response=await fetch('/api/health',{signal:AbortSignal.timeout(1200)});
@@ -13,6 +13,9 @@ async function detectBackend(){
   }catch(_error){BACKEND_API.available=false;return false;}
 }
 const backendReady=detectBackend();
+const BACKEND_SYNC_KEY='qizhi_backend_changed';
+const backendSyncChannel=typeof BroadcastChannel==='function'?new BroadcastChannel(BACKEND_SYNC_KEY):null;
+let backendRefreshQueued=false;
 
 async function backendRequest(path,options={},requiresAuth=true){
   if(!BACKEND_API.available)return null;
@@ -28,6 +31,7 @@ async function backendRequest(path,options={},requiresAuth=true){
     BACKEND_API.token='';sessionStorage.removeItem(BACKEND_TOKEN_KEY);
   }
   if(!response.ok)throw new Error(result.error||'后端请求失败');
+  if((options.method||'GET').toUpperCase()!=='GET')announceBackendChange();
   return result;
 }
 
@@ -43,14 +47,51 @@ async function backendLogin(phone,password,role){
 
 async function backendLogout(){
   if(BACKEND_API.available&&BACKEND_API.token){try{await backendRequest('/api/auth/logout',{method:'POST'});}catch(_error){}}
-  BACKEND_API.token='';BACKEND_API.user=null;BACKEND_API.authorizedChildIds=[];sessionStorage.removeItem(BACKEND_TOKEN_KEY);
+  BACKEND_API.token='';BACKEND_API.user=null;BACKEND_API.authorizedChildIds=[];BACKEND_API.lastSyncSignature='';sessionStorage.removeItem(BACKEND_TOKEN_KEY);
 }
 
-function mergeById(local,remote,idKey='id'){
-  const merged=new Map((local||[]).map(item=>[item?.[idKey],item]));
-  (remote||[]).forEach(item=>merged.set(item?.[idKey],item));
-  return [...merged.values()].filter(Boolean);
+function announceBackendChange(){
+  const stamp=Date.now()+':'+Math.random();
+  if(backendSyncChannel)backendSyncChannel.postMessage(stamp);
+  else localStorage.setItem(BACKEND_SYNC_KEY,stamp);
 }
+
+function backendSnapshotSignature(data){
+  return JSON.stringify({
+    authorizedChildIds:data.authorizedChildIds||[],children:data.children||[],trainingRecords:data.trainingRecords||[],
+    abilityProfiles:data.abilityProfiles||[],aiInferences:data.aiInferences||[],assessments:data.assessments||[],
+    interventionLogs:data.interventionLogs||[],careRecords:data.careRecords||[],safetyFlags:data.safetyFlags||[]
+  });
+}
+
+function backendUiIsBusy(){
+  if(document.hidden)return true;
+  const maskOpen=id=>{const node=document.getElementById(id);return node&&!node.classList.contains('hidden');};
+  if(maskOpen('mask')||maskOpen('trainMask'))return true;
+  return ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName);
+}
+
+function rerenderAfterBackendSync(){
+  const main=document.getElementById('main');
+  if(!main||main.classList.contains('hidden')||backendUiIsBusy())return;
+  const scrollTop=window.scrollY;
+  if(typeof showTab==='function'&&typeof curTab==='string')showTab(curTab);
+  requestAnimationFrame(()=>window.scrollTo(0,scrollTop));
+}
+
+async function refreshBackendState(){
+  if(backendRefreshQueued||BACKEND_API.syncing||!BACKEND_API.available||!BACKEND_API.token||backendUiIsBusy())return false;
+  backendRefreshQueued=true;
+  try{return await hydrateFromBackend({rerender:true});}
+  catch(error){console.warn('Shared data refresh failed:',error.message);return false;}
+  finally{backendRefreshQueued=false;}
+}
+
+if(backendSyncChannel)backendSyncChannel.addEventListener('message',refreshBackendState);
+window.addEventListener('storage',event=>{if(event.key===BACKEND_SYNC_KEY)refreshBackendState();});
+window.addEventListener('focus',refreshBackendState);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshBackendState();});
+setInterval(refreshBackendState,15000);
 
 async function syncLocalStateToBackend(){
   for(const child of children||[])await backendSaveChild(child);
@@ -71,11 +112,16 @@ async function syncLocalStateToBackend(){
   for(const flag of enhancedState?.riskFlags||[])if(flag.status==='active')await backendSaveSafetyFlag(flag);
 }
 
-async function hydrateFromBackend(){
+async function hydrateFromBackend({rerender=false}={}){
   if(!BACKEND_API.available||!BACKEND_API.token)return false;
-  const data=await backendRequest('/api/bootstrap');
-  BACKEND_API.user=data.user;BACKEND_API.authorizedChildIds=data.authorizedChildIds||[];BACKEND_API.anonymousSummary=data.anonymousSummary||null;
-  children=data.children||[];
+  if(BACKEND_API.syncing)return false;
+  BACKEND_API.syncing=true;
+  try{
+    const data=await backendRequest('/api/bootstrap');
+    const signature=backendSnapshotSignature(data),changed=signature!==BACKEND_API.lastSyncSignature;
+    BACKEND_API.lastSyncSignature=signature;
+    BACKEND_API.user=data.user;BACKEND_API.authorizedChildIds=data.authorizedChildIds||[];BACKEND_API.anonymousSummary=data.anonymousSummary||null;
+    children=data.children||[];
     records=data.trainingRecords||[];
     if(typeof relationalDb!=='undefined'){
       relationalDb.abilityProfiles=data.abilityProfiles||[];
@@ -83,15 +129,22 @@ async function hydrateFromBackend(){
       saveDatabase();
     }
     if(typeof enhancedState!=='undefined'){
-      enhancedState.assessments=data.assessments||[];
+      const assessments=data.assessments||[];
+      enhancedState.familyLogs=assessments.filter(item=>item.source==='family'||item.toolCode==='FAMILY_OBSERVATION');
+      enhancedState.assessments=assessments.filter(item=>item.source!=='family'&&item.toolCode!=='FAMILY_OBSERVATION');
+      enhancedState.interventionLogs=data.interventionLogs||[];
       const careMap={intake:'caseIntakes',goal:'careGoals',plan:'planVersions',reevaluation:'reevaluations',closure:'closures',followup:'followups',confirmation:'confirmations'};
       Object.values(careMap).forEach(key=>enhancedState[key]=[]);
       (data.careRecords||[]).forEach(item=>{const key=careMap[item.kind];if(key)enhancedState[key].push(item);});
       enhancedState.riskFlags=data.safetyFlags||[];
       saveEnhanced();
     }
+    if(activeChild&&!BACKEND_API.authorizedChildIds.includes(activeChild))activeChild=null;
+    if(!activeChild&&children.length)activeChild=children[0].id;
     plans={};children.forEach(child=>plans[child.id]=genPlan(child.id));saveAll();
-  return true;
+    if(changed&&rerender)rerenderAfterBackendSync();
+    return changed;
+  }finally{BACKEND_API.syncing=false;}
 }
 
 async function backendSaveChild(child){

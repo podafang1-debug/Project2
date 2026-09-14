@@ -4,4 +4,6 @@ backend/*.db-wal
 backend/__pycache__/
 backend/private_documents/
 backend/backups/
+.portable-build/
+release/
 backend/.document_key
